@@ -1,0 +1,22 @@
+﻿[package]
+name = "multinet-cybershield-ai-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "MultiNet CyberShield AI desktop shell (Tauri 2)"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+telemetry.workspace = true
+audit-logger.workspace = true
+network-core.workspace = true
+security-core.workspace = true
+ai-orchestrator.workspace = true
+security-policy.workspace = true
+bonding-engine.workspace = true

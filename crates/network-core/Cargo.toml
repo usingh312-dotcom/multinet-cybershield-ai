@@ -1,0 +1,11 @@
+[package]
+name = "network-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true

@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/desktop/src-tauri",
+  "crates/network-core",
+  "crates/interface-discovery",
+  "crates/network-monitor",
+  "crates/routing-engine",
+  "crates/bonding-engine",
+  "crates/tunnel-protocol",
+  "crates/tunnel-security",
+  "crates/security-core",
+  "crates/intrusion-detection",
+  "crates/endpoint-monitor",
+  "crates/threat-intelligence",
+  "crates/dns-protection",
+  "crates/firewall-manager",
+  "crates/incident-response",
+  "crates/security-policy",
+  "crates/ai-orchestrator",
+  "crates/telemetry",
+  "crates/audit-logger",
+  "relay/bonding-server",
+  "relay/session-manager",
+  "relay/security-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+authors = ["MultiNet CyberShield AI Contributors"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tracing = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde", "formatting"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate"] }
+axum = "0.7"
+
+network-core = { path = "crates/network-core" }
+security-core = { path = "crates/security-core" }
+ai-orchestrator = { path = "crates/ai-orchestrator" }
+telemetry = { path = "crates/telemetry" }
+audit-logger = { path = "crates/audit-logger" }
+security-policy = { path = "crates/security-policy" }
+bonding-engine = { path = "crates/bonding-engine" }

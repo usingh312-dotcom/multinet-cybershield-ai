@@ -1,0 +1,6 @@
+﻿{
+  "identifier": "default",
+  "description": "Default capability: core window only. No shell/filesystem/network plugin permissions in Phase 1.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

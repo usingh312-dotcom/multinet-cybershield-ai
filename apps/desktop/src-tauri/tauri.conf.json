@@ -1,0 +1,24 @@
+﻿{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MultiNet CyberShield AI",
+  "version": "0.1.0",
+  "identifier": "ai.multinet.cybershield",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "MultiNet CyberShield AI — Connect. Protect. Detect.",
+        "width": 1280,
+        "height": 820,
+        "resizable": true
+      }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "targets": "all", "icon": ["icons/icon.png"] }
+}

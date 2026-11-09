@@ -381,7 +381,7 @@ pub async fn get_traffic_snapshot(
     state: tauri::State<'_, DiagnosticsState>,
     pool: tauri::State<'_, crate::db::DatabaseState>,
 ) -> Result<TrafficSnapshotDto, IpcError> {
-    let mut snapshot = lock(&state.latest).clone().unwrap_or_else(|| TrafficSnapshotDto {
+    let mut snapshot = (*lock(&state.latest)).clone().unwrap_or_else(|| TrafficSnapshotDto {
         sampled_at: now_rfc3339(),
         source: "GetIfTable2".into(),
         monitor_active: state.running.load(Ordering::Relaxed),
@@ -765,6 +765,7 @@ pub fn get_speed_test_status(
         .get(&id)
         .cloned()
         .ok_or_else(|| IpcError::not_found("speed test run not found"))?;
+    let progress = (*lock(&run.progress)).clone();
     let outcome = lock(&run.outcome);
     let (state_label, report, error) = match &*outcome {
         SpeedTestOutcome::Running => ("running", None, None),
@@ -772,10 +773,11 @@ pub fn get_speed_test_status(
         SpeedTestOutcome::Failed(message) => ("failed", None, Some(message.clone())),
         SpeedTestOutcome::Cancelled => ("cancelled", None, None),
     };
+    drop(outcome);
     Ok(SpeedTestStatusDto {
         id,
         state: state_label.into(),
-        progress: lock(&run.progress).clone(),
+        progress,
         report,
         error,
     })

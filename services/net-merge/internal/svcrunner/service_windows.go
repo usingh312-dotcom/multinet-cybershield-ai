@@ -42,7 +42,7 @@ const (
 type NetMergeService struct {
 	pipeName string
 	server   *ipc.Server
-	engine   *engineadapter.EngineAdapter
+	engine   ipc.Engine
 	coord    *mode.Coordinator
 	elog     *eventlog.Log
 }

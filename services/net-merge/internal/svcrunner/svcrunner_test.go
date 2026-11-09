@@ -55,3 +55,4 @@ func TestQueryServiceStatusWhenNotInstalled(t *testing.T) {
 	}
 	t.Logf("SCM Service status: %s", status)
 }
+

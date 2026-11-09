@@ -145,11 +145,16 @@ jobs:
         run: |
           .\packaging\signing\verify-signatures.ps1
 
+      - name: Assemble Beta Distribution Package
+        shell: pwsh
+        run: |
+          .\packaging\package-beta.ps1
+
       - name: Upload Release Package Artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: release-package-nm06-4
+          name: release-package-nm07-0
           path: |
             packaging/output/*
             packaging/staging/*

@@ -113,8 +113,9 @@ if ($WixInstalled) {
 # 7. Generate Release Manifest JSON
 $Manifest = @{
     "Product" = "MultiNet CyberShield AI"
-    "Version" = "0.1.0"
-    "ReleaseMilestone" = "NM-06.4"
+    "Version" = "0.1.0-beta.1"
+    "ReleaseTag" = "v0.1.0-beta.1"
+    "ReleaseMilestone" = "NM-07.0"
     "BuildDate" = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ssZ")
     "TargetOS" = "Windows 10 / 11 (x64)"
     "Components" = $ManifestItems

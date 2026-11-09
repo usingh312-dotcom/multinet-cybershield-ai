@@ -237,6 +237,8 @@ mod tests {
         let mut layer = FramingLayer::new(test_key());
         let high = layer.encapsulate(b"high".to_vec()).unwrap(); // seq 0
         let low = layer.encapsulate(b"low".to_vec()).unwrap();   // seq 1
+        // Accept higher seq 1 first (out of order acceptance).
+        assert_eq!(layer.decapsulate(&low).unwrap().0, 1);
         // Re-decapsulating seq 0 (lower than last accepted 1) must be rejected.
         assert!(matches!(
             layer.decapsulate(&high),

@@ -20,30 +20,9 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
-
-// kernel32 proc for getting the named-pipe client process ID.
-var (
-	procGetNamedPipeClientProcessId = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetNamedPipeClientProcessId")
-)
-
-// getPipeClientPID returns the process ID of the client connected to the given
-// named pipe handle. This is the trusted way to identify the pipe client:
-// the PID comes from the kernel, not from a caller-supplied value.
-func getPipeClientPID(pipe windows.Handle) (uint32, error) {
-	var pid uint32
-	r1, _, _ := procGetNamedPipeClientProcessId.Call(
-		uintptr(pipe),
-		uintptr(unsafe.Pointer(&pid)),
-	)
-	if r1 == 0 {
-		return 0, fmt.Errorf("GetNamedPipeClientProcessId failed")
-	}
-	return pid, nil
-}
 
 // Server is the named-pipe IPC server for the Net Merge service.
 type Server struct {
@@ -69,7 +48,7 @@ type Engine interface {
 	Status() (Status, error)
 	SetLimit(adapter string, mbps float64) error
 	ModeBActive() bool
-	SetModeB(active bool, rustPid uint32) error
+	SetModeB(active bool, rustPid uint32, rustHandle windows.Handle) error
 }
 
 // AdapterInfo mirrors nics.Nic for the IPC boundary.
@@ -375,13 +354,44 @@ func (s *Server) handleSetModeB(req Request, ci ClientIdentity) (Response, error
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return NewErrorResponse(req.ID, "invalid_params", err.Error(), false), nil
 	}
-	// Bind the Rust process identity to the authenticated pipe client using
-	// ci.ClientPid, which was obtained via GetNamedPipeClientProcessId() in
-	// validateClientIdentity(). We do NOT trust a caller-supplied PID: the PID
-	// comes from the kernel, preventing PID reuse and impersonation attacks
-	// where a malicious caller supplies an arbitrary PID.
-	if err := s.engine.SetModeB(params.Active, ci.ClientPid); err != nil {
+
+	if !params.Active {
+		// Deactivate Mode B: release exclusivity and clear process handle
+		if err := s.engine.SetModeB(false, 0, 0); err != nil {
+			return NewErrorResponse(req.ID, "set_mode_b_failed", err.Error(), true), nil
+		}
+		return NewOKResponse(req.ID, map[string]bool{"active": false, "mode_b": false})
+	}
+
+	// Determine target PID: if caller explicitly supplied a valid Rust engine PID,
+	// use it; otherwise default to the authenticated named-pipe client's PID.
+	targetPid := ci.ClientPid
+	if params.RustPID != 0 {
+		targetPid = params.RustPID
+	}
+	if targetPid == 0 {
+		return NewErrorResponse(req.ID, "invalid_process", "PID cannot be 0", false), nil
+	}
+
+	// Open and validate the process handle with query and synchronize rights.
+	rustHandle, err := openValidatedProcess(targetPid)
+	if err != nil {
+		return NewErrorResponse(req.ID, "invalid_process", err.Error(), false), nil
+	}
+
+	// Verify that the process identity represents the authorized Rust bonding engine.
+	if err := verifyRustProcessIdentity(rustHandle, targetPid); err != nil {
+		windows.CloseHandle(rustHandle)
+		return NewErrorResponse(req.ID, "invalid_process_identity", err.Error(), false), nil
+	}
+
+	// Pass ownership of rustHandle to the engine coordinator.
+	// On failure, close handle immediately. On success, coordinator assumes ownership
+	// and will close rustHandle upon ReleaseMode or service shutdown.
+	if err := s.engine.SetModeB(true, targetPid, rustHandle); err != nil {
+		windows.CloseHandle(rustHandle)
 		return NewErrorResponse(req.ID, "set_mode_b_failed", err.Error(), true), nil
 	}
-	return NewOKResponse(req.ID, map[string]bool{"active": params.Active, "mode_b": params.Active})
+
+	return NewOKResponse(req.ID, map[string]bool{"active": true, "mode_b": true})
 }

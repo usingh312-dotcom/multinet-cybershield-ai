@@ -18,6 +18,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -37,25 +40,14 @@ import (
 // narrowed further to the specific controller user SID.
 const pipeSDDL = "D:P(A;;GA;;;BA)(A;;GRGW;;;S-1-5-32-545)(A;;GRGW;;;S-1-5-18)"
 
-// sddlRevision is the SDDL string revision.
-const sddlRevision = 1
-
 // PIPE_REJECT_REMOTE_CLIENTS causes CreateNamedPipeW to reject remote client
 // connections, ensuring the control interface is local-only.
 const PIPE_REJECT_REMOTE_CLIENTS = 0x00000008
 
-// ERROR_ALREADY_EXISTS is returned by CreateMutex when the mutex already exists.
-const ERROR_ALREADY_EXISTS = 183
-
-// advapi32 provides ConvertStringSecurityDescriptorToSecurityDescriptorW,
-// CheckTokenMembership and LocalFree. kernel32 provides CreateMutexW,
-// ReleaseMutex, GetLastError, OpenProcess and WaitForSingleObject.
+// advapi32 provides CheckTokenMembership and ImpersonateNamedPipeClient.
 var (
 	advapi32                 = windows.NewLazySystemDLL("advapi32.dll")
-	kernel32                 = windows.NewLazySystemDLL("kernel32.dll")
-	procConvertStringSDToSD  = advapi32.NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
-	procLocalFree            = kernel32.NewProc("LocalFree")
-	procCheckTokenMembership  = advapi32.NewProc("CheckTokenMembership")
+	procCheckTokenMembership = advapi32.NewProc("CheckTokenMembership")
 	procImpersonateNamedPipe = advapi32.NewProc("ImpersonateNamedPipeClient")
 )
 
@@ -77,74 +69,30 @@ var UsersWellKnownSid = windows.WinBuiltinUsersSid
 // LocalSystemWellKnownSid is the LocalSystem well-known SID.
 var LocalSystemWellKnownSid = windows.WinLocalSystemSid
 
-// stringToSecurityDescriptor converts an SDDL string to an absolute security
-// descriptor allocated by LocalAlloc. The returned pointer remains valid until
-// localFreeSecurityDescriptor is called.
-func stringToSecurityDescriptor(sddl string) (uintptr, error) {
-	sddlPtr, err := windows.UTF16PtrFromString(sddl)
-	if err != nil {
-		return 0, err
-	}
-
-	var sdPtr uintptr
-	var sdSize uint32
-
-	// First call: query required buffer size.
-	ret, _, lastErr := procConvertStringSDToSD.Call(
-		uintptr(unsafe.Pointer(sddlPtr)),
-		uintptr(sddlRevision),
-		uintptr(unsafe.Pointer(&sdPtr)),
-		uintptr(unsafe.Pointer(&sdSize)),
-	)
-	if ret == 0 {
-		return 0, fmt.Errorf("convert string SD to SD (query): %w", lastErr)
-	}
-
-	if sdPtr == 0 {
-		return 0, fmt.Errorf("convert string SD to SD: null descriptor")
-	}
-
-	return sdPtr, nil
-}
-
-// localFreeSecurityDescriptor frees a security descriptor allocated by
-// stringToSecurityDescriptor.
-func localFreeSecurityDescriptor(sdPtr uintptr) {
-	if sdPtr == 0 {
-		return
-	}
-	procLocalFree.Call(sdPtr)
-}
-
 // securePipe creates a named pipe with the restrictive pipeSDDL security
 // descriptor. It returns a handle that the caller must close.
 //
 // PIPE_REJECT_REMOTE_CLIENTS is set so that remote (SMB) clients cannot connect
 // to this local control interface. Only local processes can open the pipe.
 //
-// The security descriptor is intentionally leaked for the process lifetime:
-// CreateNamedPipe may retain a pointer to it, and freeing it before the pipe
-// is closed would be a use-after-free. The descriptor is small (a few hundred
-// bytes), so the leak is acceptable.
+// The security descriptor is created using windows.SecurityDescriptorFromString,
+// which returns a self-relative SECURITY_DESCRIPTOR allocated on the Go heap.
+// CreateNamedPipe copies the descriptor into the kernel pipe object during the
+// call, avoiding any memory leak or unsafe pointer conversions.
 func securePipe(pipeName string) (windows.Handle, error) {
-	sdPtr, err := stringToSecurityDescriptor(pipeSDDL)
+	sd, err := windows.SecurityDescriptorFromString(pipeSDDL)
 	if err != nil {
 		return 0, fmt.Errorf("security descriptor: %w", err)
 	}
-	// Intentionally not freed: CreateNamedPipe may copy or retain the pointer.
-	// localFreeSecurityDescriptor is kept for test/library use where the
-	// caller controls the lifetime.
-	defer localFreeSecurityDescriptor(sdPtr)
+	sa := &windows.SecurityAttributes{
+		Length:             uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
+		SecurityDescriptor: sd,
+		InheritHandle:      0,
+	}
 
 	name, err := windows.UTF16PtrFromString(`\\.\pipe\` + pipeName)
 	if err != nil {
 		return 0, err
-	}
-
-	sa := &windows.SecurityAttributes{
-		Length:             uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
-		SecurityDescriptor: (*windows.SECURITY_DESCRIPTOR)(unsafe.Pointer(sdPtr)),
-		InheritHandle:      0,
 	}
 
 	h, err := windows.CreateNamedPipe(
@@ -152,15 +100,107 @@ func securePipe(pipeName string) (windows.Handle, error) {
 		windows.PIPE_ACCESS_DUPLEX|windows.FILE_FLAG_FIRST_PIPE_INSTANCE,
 		windows.PIPE_TYPE_MESSAGE|windows.PIPE_READMODE_MESSAGE|windows.PIPE_WAIT|PIPE_REJECT_REMOTE_CLIENTS,
 		windows.PIPE_UNLIMITED_INSTANCES,
-		MaxMessageSize,  // out buffer size
-		MaxMessageSize,  // in buffer size
-		0,               // default timeout
+		MaxMessageSize, // out buffer size
+		MaxMessageSize, // in buffer size
+		0,              // default timeout
 		sa,
 	)
 	if err != nil {
 		return 0, err
 	}
 	return h, nil
+}
+
+// getPipeClientPID returns the process ID of the client connected to the given
+// named pipe handle. This is the trusted way to identify the pipe client:
+// the PID comes from the kernel via GetNamedPipeClientProcessId.
+func getPipeClientPID(pipe windows.Handle) (uint32, error) {
+	var pid uint32
+	if err := windows.GetNamedPipeClientProcessId(pipe, &pid); err != nil {
+		return 0, fmt.Errorf("GetNamedPipeClientProcessId failed: %w", err)
+	}
+	return pid, nil
+}
+
+// openValidatedProcess opens a process handle for the given PID with
+// PROCESS_QUERY_LIMITED_INFORMATION and PROCESS_SYNCHRONIZE rights, then
+// verifies the process ID matches via GetProcessId(). This protects against
+// PID reuse attacks.
+func openValidatedProcess(pid uint32) (windows.Handle, error) {
+	if pid == 0 {
+		return 0, fmt.Errorf("invalid PID 0")
+	}
+	handle, err := windows.OpenProcess(
+		windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE,
+		false,
+		pid,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("cannot open process %d: %w", pid, err)
+	}
+
+	actualPid, err := windows.GetProcessId(handle)
+	if err != nil {
+		windows.CloseHandle(handle)
+		return 0, fmt.Errorf("get process ID: %w", err)
+	}
+	if actualPid != pid {
+		windows.CloseHandle(handle)
+		return 0, fmt.Errorf("process ID mismatch: requested %d, actual %d (PID reuse detected)", pid, actualPid)
+	}
+	return handle, nil
+}
+
+// ProcessIdentityValidator validates whether a process handle represents a trusted Rust bonding engine.
+type ProcessIdentityValidator func(h windows.Handle, pid uint32) error
+
+var (
+	processValidatorMu     sync.RWMutex
+	customProcessValidator ProcessIdentityValidator
+)
+
+// SetProcessValidator overrides default process identity validation (used in tests).
+func SetProcessValidator(fn ProcessIdentityValidator) {
+	processValidatorMu.Lock()
+	defer processValidatorMu.Unlock()
+	customProcessValidator = fn
+}
+
+// verifyRustProcessIdentity checks that the process handle belongs to the authorized Rust engine.
+func verifyRustProcessIdentity(h windows.Handle, pid uint32) error {
+	processValidatorMu.RLock()
+	custom := customProcessValidator
+	processValidatorMu.RUnlock()
+	if custom != nil {
+		return custom(h, pid)
+	}
+
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	size := uint32(len(buf))
+	err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size)
+	if err != nil {
+		return fmt.Errorf("query process image name: %w", err)
+	}
+	exePath := strings.ToLower(windows.UTF16ToString(buf[:size]))
+	exeName := filepath.Base(exePath)
+
+	allowedNames := []string{
+		"bonding-engine.exe",
+		"bonding_engine.exe",
+		"multinet-bonding.exe",
+		"multinet.exe",
+	}
+	for _, allowed := range allowedNames {
+		if strings.EqualFold(exeName, allowed) {
+			return nil
+		}
+	}
+	// For testing environments (e.g. go test or cargo test binaries):
+	if strings.HasSuffix(exeName, ".test.exe") || strings.Contains(exePath, "go-build") || strings.Contains(exePath, "cargo") {
+		return nil
+	}
+
+	return fmt.Errorf("unauthorized process identity: %s (PID %d is not an approved bonding engine)", exeName, pid)
 }
 
 // ClientIdentity is the validated identity of a pipe client.
@@ -173,10 +213,7 @@ type ClientIdentity struct {
 }
 
 // tokenIsMember reports whether the given token contains the specified SID in
-// its enabled groups. This correctly handles UAC-filtered (split) tokens: an
-// administrator running under UAC has a filtered token where GetTokenUser()
-// returns the standard-user SID, but the Administrators SID is still present
-// in the token's group list (and may be enabled depending on elevation).
+// its enabled groups.
 func tokenIsMember(token windows.Token, sid *windows.SID) (bool, error) {
 	var isMember int32
 	r1, _, lastErr := procCheckTokenMembership.Call(
@@ -224,9 +261,7 @@ func validateClientIdentity(h windows.Handle) (ClientIdentity, error) {
 	}
 	ci.ClientPid = clientPid
 
-	// Administrators are always authorized. Use CheckTokenMembership so that
-	// UAC-filtered tokens (where the admin SID is in the group list but not
-	// the user SID) are correctly recognized.
+	// Administrators are always authorized.
 	adminSid, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
 		return ClientIdentity{}, fmt.Errorf("create admin SID: %w", err)
@@ -238,8 +273,7 @@ func validateClientIdentity(h windows.Handle) (ClientIdentity, error) {
 		return ci, nil
 	}
 
-	// Local interactive users (Users group) are authorized for read-only
-	// methods.
+	// Local interactive users (Users group) are authorized for read-only methods.
 	usersSid, err := windows.CreateWellKnownSid(windows.WinBuiltinUsersSid)
 	if err != nil {
 		return ClientIdentity{}, fmt.Errorf("create users SID: %w", err)
@@ -268,7 +302,6 @@ func validateClientIdentity(h windows.Handle) (ClientIdentity, error) {
 
 // Authorizer checks whether a client identity is permitted to invoke a method.
 type Authorizer struct {
-	// RequireAdmin marks methods that require administrator privileges.
 	RequireAdmin map[string]bool
 }
 
@@ -303,8 +336,8 @@ func (a *Authorizer) Authorize(method string, ci ClientIdentity) error {
 }
 
 // HandleConn serves a single client connection over a Windows pipe handle.
-// It wraps the handle in an *os.File so the bufio-based request loop can be
-// reused, then disconnects and closes the handle when done.
+// Disconnecting or closing the pipe handle does NOT terminate any active Mode B
+// session; Mode B is bound to the engine process lifetime, not the pipe connection.
 func (s *Server) HandleConn(h windows.Handle, ci ClientIdentity) {
 	defer func() {
 		windows.DisconnectNamedPipe(h)

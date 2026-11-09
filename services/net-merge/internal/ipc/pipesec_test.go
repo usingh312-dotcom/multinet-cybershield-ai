@@ -1,13 +1,14 @@
-// Package ipc_test tests the secured named-pipe creation, client identity
-// validation, and per-method authorization. These tests exercise real
-// implementation paths (SDDL parsing, security descriptor creation) but cannot
-// create actual named pipes without Windows privileges.
+// Package ipc tests the secured named-pipe creation, client identity
+// validation, and per-method authorization.
 package ipc
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestPipeSDDLIsRestrictive(t *testing.T) {
@@ -31,21 +32,92 @@ func TestPipeSDDLIsRestrictive(t *testing.T) {
 	}
 }
 
-func TestStringToSecurityDescriptor(t *testing.T) {
-	sdPtr, err := stringToSecurityDescriptor(pipeSDDL)
+func TestSecurityDescriptorFromString(t *testing.T) {
+	sd, err := windows.SecurityDescriptorFromString(pipeSDDL)
 	if err != nil {
-		t.Fatalf("stringToSecurityDescriptor: %v", err)
+		t.Fatalf("SecurityDescriptorFromString: %v", err)
 	}
-	if sdPtr == 0 {
-		t.Fatal("expected non-null security descriptor pointer")
+	if sd == nil {
+		t.Fatal("expected non-nil security descriptor")
 	}
-	localFreeSecurityDescriptor(sdPtr)
 }
 
-func TestStringToSecurityDescriptorInvalid(t *testing.T) {
-	_, err := stringToSecurityDescriptor("D:P(INVALID)")
+func TestSecurityDescriptorFromStringInvalid(t *testing.T) {
+	_, err := windows.SecurityDescriptorFromString("D:P(INVALID)")
 	if err == nil {
 		t.Fatal("expected error for invalid SDDL")
+	}
+}
+
+func TestSecurePipeCreation(t *testing.T) {
+	pipeName := fmt.Sprintf("multinet-test-pipe-%d", windows.GetCurrentProcessId())
+	h, err := securePipe(pipeName)
+	if err != nil {
+		t.Fatalf("securePipe failed: %v", err)
+	}
+	defer windows.CloseHandle(h)
+
+	if h == 0 || h == windows.InvalidHandle {
+		t.Fatal("expected valid pipe handle")
+	}
+
+	// Attempting to create a second pipe instance with FILE_FLAG_FIRST_PIPE_INSTANCE must fail.
+	_, err2 := securePipe(pipeName)
+	if err2 == nil {
+		t.Fatal("expected second securePipe with FIRST_PIPE_INSTANCE to fail")
+	}
+}
+
+func TestOpenValidatedProcess(t *testing.T) {
+	currentPid := windows.GetCurrentProcessId()
+
+	// 1. Valid current process registration
+	h, err := openValidatedProcess(currentPid)
+	if err != nil {
+		t.Fatalf("openValidatedProcess(currentPid): %v", err)
+	}
+	defer windows.CloseHandle(h)
+
+	actualPid, err := windows.GetProcessId(h)
+	if err != nil {
+		t.Fatalf("GetProcessId: %v", err)
+	}
+	if actualPid != currentPid {
+		t.Fatalf("expected PID %d, got %d", currentPid, actualPid)
+	}
+
+	// 2. Reject PID 0
+	if _, err := openValidatedProcess(0); err == nil {
+		t.Fatal("expected openValidatedProcess(0) to fail")
+	}
+
+	// 3. Reject non-existent PID
+	if _, err := openValidatedProcess(99999999); err == nil {
+		t.Fatal("expected openValidatedProcess(99999999) to fail")
+	}
+}
+
+func TestProcessIdentityValidation(t *testing.T) {
+	currentPid := windows.GetCurrentProcessId()
+	h, err := openValidatedProcess(currentPid)
+	if err != nil {
+		t.Fatalf("openValidatedProcess: %v", err)
+	}
+	defer windows.CloseHandle(h)
+
+	// In test binary (.test.exe), verifyRustProcessIdentity should accept it
+	if err := verifyRustProcessIdentity(h, currentPid); err != nil {
+		t.Fatalf("verifyRustProcessIdentity failed for test process: %v", err)
+	}
+
+	// Custom validator rejects unauthorized process
+	SetProcessValidator(func(handle windows.Handle, pid uint32) error {
+		return fmt.Errorf("mock unauthorized identity for testing")
+	})
+	defer SetProcessValidator(nil)
+
+	if err := verifyRustProcessIdentity(h, currentPid); err == nil {
+		t.Fatal("expected verifyRustProcessIdentity to reject when validator returns error")
 	}
 }
 

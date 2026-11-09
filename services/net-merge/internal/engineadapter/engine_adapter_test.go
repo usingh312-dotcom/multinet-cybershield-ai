@@ -6,6 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"golang.org/x/sys/windows"
+
 	"multinet.ai/netmerge-service/internal/engineadapter"
 	"multinet.ai/netmerge-service/internal/ipc"
 	"multinet.ai/netmerge-service/internal/mode"
@@ -34,14 +36,15 @@ func (m *mockEngine) Status() (ipc.Status, error) {
 }
 func (m *mockEngine) SetLimit(adapter string, mbps float64) error { return nil }
 func (m *mockEngine) ModeBActive() bool                           { return m.modeB }
-func (m *mockEngine) SetModeB(active bool, rustPid uint32) error {
+func (m *mockEngine) SetModeB(active bool, rustPid uint32, rustHandle windows.Handle) error {
 	m.modeB = active
 	return nil
 }
 
 func TestModeExclusivityStartRejectsModeB(t *testing.T) {
 	coord := mode.NewCoordinator()
-	if err := coord.RequestModeB(1234); err != nil {
+	currentPid := windows.GetCurrentProcessId()
+	if err := coord.RequestModeB(currentPid); err != nil {
 		t.Fatalf("RequestModeB: %v", err)
 	}
 	eng := engineadapter.New(coord)
@@ -56,6 +59,7 @@ func TestModeExclusivityStartRejectsModeB(t *testing.T) {
 
 func TestModeExclusivityActivations(t *testing.T) {
 	coord := mode.NewCoordinator()
+	currentPid := windows.GetCurrentProcessId()
 	if err := coord.RequestModeA(); err != nil {
 		t.Fatalf("RequestModeA: %v", err)
 	}
@@ -63,7 +67,7 @@ func TestModeExclusivityActivations(t *testing.T) {
 		t.Fatal("expected Mode A active")
 	}
 	// Switching to Mode B while Mode A is active must fail.
-	if err := coord.RequestModeB(999); err == nil {
+	if err := coord.RequestModeB(currentPid); err == nil {
 		t.Fatal("expected mode conflict activating Mode B over Mode A")
 	}
 	if err := coord.ReleaseMode(); err != nil {
@@ -76,13 +80,14 @@ func TestModeExclusivityActivations(t *testing.T) {
 
 func TestSetBondingAndSetNetMerge(t *testing.T) {
 	coord := mode.NewCoordinator()
+	currentPid := windows.GetCurrentProcessId()
 	if err := coord.RequestModeA(); err != nil {
 		t.Fatalf("RequestModeA: %v", err)
 	}
 	if !coord.IsNetMerge() {
 		t.Fatal("expected Mode A after RequestModeA(true)")
 	}
-	if err := coord.RequestModeB(555); err == nil {
+	if err := coord.RequestModeB(currentPid); err == nil {
 		t.Fatal("expected RequestModeB to fail while Mode A is active")
 	}
 	if !coord.IsNetMerge() {
@@ -94,11 +99,11 @@ func TestSetBondingAndSetNetMerge(t *testing.T) {
 	if coord.Current() != mode.None {
 		t.Fatal("expected None after release")
 	}
-	if err := coord.RequestModeB(777); err != nil {
+	if err := coord.RequestModeB(currentPid); err != nil {
 		t.Fatalf("RequestModeB after release: %v", err)
 	}
-	if !coord.IsBonding() || coord.RustPid() != 777 {
-		t.Fatal("expected Mode B with pid 777")
+	if !coord.IsBonding() || coord.RustPid() != currentPid {
+		t.Fatalf("expected Mode B with pid %d", currentPid)
 	}
 	if err := coord.ReleaseMode(); err != nil {
 		t.Fatalf("ReleaseMode: %v", err)

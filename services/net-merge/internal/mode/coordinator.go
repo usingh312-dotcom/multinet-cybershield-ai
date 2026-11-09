@@ -14,6 +14,18 @@
 // pipe connection handle — not from a caller-supplied value. This prevents PID
 // reuse attacks and impersonation: a malicious IPC caller cannot supply an
 // arbitrary PID and have the service monitor the wrong process.
+//
+// Process-handle lifecycle:
+//   1. RequestModeB() acquires or validates a process handle via OpenProcess()
+//   2. GetProcessId() is called to verify the PID matches (PID reuse check)
+//   3. The validated handle is stored in the coordinator
+//   4. MonitorRustProcess() waits on the stored handle (never re-opens by PID)
+//   5. ReleaseMode() closes the handle and releases the kernel mutex
+//
+// A session ID (generation counter) protects against stale monitor callbacks:
+//   - Each Mode B activation increments the session ID
+//   - MonitorRustProcess() records the session ID when it starts
+//   - ReleaseMode() increments the session ID, causing stale monitors to exit
 package mode
 
 import (
@@ -26,25 +38,24 @@ import (
 	"multinet.ai/netmerge-service/internal/modeowner"
 )
 
-// kernel32 procs used for process-lifetime monitoring.
-var (
-	kernel32              = windows.NewLazySystemDLL("kernel32.dll")
-	procWaitForSingleObject = kernel32.NewProc("WaitForSingleObject")
-	procCloseHandle       = kernel32.NewProc("CloseHandle")
+// PROCESS_QUERY_LIMITED_INFORMATION is the access right used to open a process
+// for exit-status queries. PROCESS_SYNCHRONIZE is required for WaitForSingleObject
+// on a process handle.
+const (
+	PROCESS_QUERY_LIMITED_INFORMATION = 0x00001000
+	PROCESS_SYNCHRONIZE               = 0x00100000
 )
-
-// PROCESS_SYNCHRONIZE is required for WaitForSingleObject on a process handle.
-const PROCESS_SYNCHRONIZE = 0x00100000
 
 // Coordinator is the authoritative Mode A / Mode B coordinator owned by the
 // elevated Go service. It holds the kernel named mutex and tracks mode state
 // plus the validated Rust bonding-engine process handle for lifetime monitoring.
 type Coordinator struct {
-	mu      sync.Mutex
-	owner   *modeowner.Owner // kernel mutex for cross-process exclusion
-	mode    Mode
-	rustPid uint32                    // PID of the Rust bonding engine when Mode B is active
-	rustHandle windows.Handle            // validated process handle for lifetime monitoring
+	mu         sync.Mutex
+	owner      *modeowner.Owner // kernel mutex for cross-process exclusion
+	mode       Mode
+	rustPid    uint32         // PID of the Rust bonding engine when Mode B is active
+	rustHandle windows.Handle // validated process handle for lifetime monitoring
+	session    uint64         // generation counter for stale monitor detection
 }
 
 // NewCoordinator creates a coordinator that does not yet own the mutex.
@@ -76,6 +87,19 @@ func (c *Coordinator) RustPid() uint32 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.rustPid
+}
+
+// sessionID returns the current session ID for stale-monitor detection.
+// Must be called with c.mu held.
+func (c *Coordinator) sessionID() uint64 {
+	return c.session
+}
+
+// bumpSession invalidates all outstanding monitor goroutines by advancing the
+// session ID. Any monitor started with an older session ID will exit on its
+// next poll without calling ReleaseMode().
+func (c *Coordinator) bumpSession() {
+	c.session++
 }
 
 // RequestModeA attempts to activate Mode A (Net Merge). It fails if Mode B is
@@ -116,47 +140,102 @@ func (c *Coordinator) RequestModeA() error {
 }
 
 // RequestModeB attempts to activate Mode B (Rust bonding). It fails if Mode A is
-// active or if the kernel mutex cannot be acquired. rustPid must be the
-// validated PID of the pipe client (obtained via GetNamedPipeClientProcessId),
-// not a caller-supplied value. The coordinator stores this PID and monitors the
-// corresponding process handle, releasing Mode B when the process exits.
-func (c *Coordinator) RequestModeB(rustPid uint32) error {
+// active or if the kernel mutex cannot be acquired. rustPid is the validated
+// PID of the engine process. An existing validated handle may optionally be
+// provided; if omitted or zero, a new handle is opened with query and synchronize
+// rights. Mode B is rejected if a valid process handle cannot be established.
+func (c *Coordinator) RequestModeB(rustPid uint32, handle ...windows.Handle) error {
+	if rustPid == 0 {
+		return fmt.Errorf("invalid PID 0: Mode B requires a valid process")
+	}
+
 	c.mu.Lock()
 	if c.mode == NetMerge {
 		c.mu.Unlock()
 		return fmt.Errorf("cannot activate bonding engine (Mode B) while Net Merge (Mode A) is active")
 	}
-	if c.mode == Bonding {
+	if c.mode == Bonding && c.rustPid == rustPid && c.rustHandle != 0 {
 		c.mu.Unlock()
-		return nil // already active
+		return nil // already active with valid handle
 	}
 	c.mu.Unlock()
 
+	var h windows.Handle
+	var openedHere bool
+	if len(handle) > 0 && handle[0] != 0 && handle[0] != windows.InvalidHandle {
+		h = handle[0]
+	} else {
+		// Open process handle with query + synchronize rights
+		var err error
+		h, err = windows.OpenProcess(
+			windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE,
+			false,
+			rustPid,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot open process %d: %w", rustPid, err)
+		}
+		openedHere = true
+	}
+
+	// Verify the process ID matches the requested PID (PID reuse check)
+	actualPid, err := windows.GetProcessId(h)
+	if err != nil {
+		if openedHere {
+			windows.CloseHandle(h)
+		}
+		return fmt.Errorf("get process ID: %w", err)
+	}
+	if actualPid != rustPid {
+		if openedHere {
+			windows.CloseHandle(h)
+		}
+		return fmt.Errorf("process ID mismatch: requested %d, actual %d (PID reuse detected)", rustPid, actualPid)
+	}
+
+	// Acquire cross-process tunnel exclusion mutex
 	owned, err := c.owner.TryAcquire(5 * time.Second)
 	if err != nil {
+		if openedHere {
+			windows.CloseHandle(h)
+		}
 		return fmt.Errorf("mode mutex acquire: %w", err)
 	}
 	if !owned {
+		if openedHere {
+			windows.CloseHandle(h)
+		}
 		return fmt.Errorf("another process owns the networking tunnel; refusing Mode B")
 	}
 
 	c.mu.Lock()
 	if c.mode == NetMerge {
 		c.mu.Unlock()
+		if openedHere {
+			windows.CloseHandle(h)
+		}
 		if err := c.owner.Release(); err != nil {
 			return fmt.Errorf("mode mutex release after race: %w", err)
 		}
 		return fmt.Errorf("cannot activate bonding engine (Mode B) while Net Merge (Mode A) is active")
 	}
+
+	// If there was an old handle, close it
+	if c.rustHandle != 0 && c.rustHandle != h {
+		windows.CloseHandle(c.rustHandle)
+	}
 	c.mode = Bonding
 	c.rustPid = rustPid
+	c.rustHandle = h
+	c.bumpSession()
 	c.mu.Unlock()
 	return nil
 }
 
 // ReleaseMode deactivates the current mode and releases the kernel mutex. Safe
 // to call when no mode is active. Mode B ownership is released only after the
-// validated Rust process handle is closed.
+// validated Rust process handle is closed. Any outstanding monitor
+// goroutines are invalidated via session ID bumping.
 func (c *Coordinator) ReleaseMode() error {
 	c.mu.Lock()
 	if c.mode == None {
@@ -169,6 +248,7 @@ func (c *Coordinator) ReleaseMode() error {
 		windows.CloseHandle(c.rustHandle)
 		c.rustHandle = 0
 	}
+	c.bumpSession()
 	c.mu.Unlock()
 
 	if err := c.owner.Release(); err != nil {
@@ -177,17 +257,31 @@ func (c *Coordinator) ReleaseMode() error {
 	return nil
 }
 
+// Close deactivates mode and closes all held handles.
+func (c *Coordinator) Close() error {
+	return c.ReleaseMode()
+}
+
 // SetRustProcessHandle binds a validated process handle to the active Mode B
-// session. The handle is obtained by the service from
-// GetNamedPipeClientProcessId() on the authenticated pipe connection, NOT from
-// a caller-supplied value. This prevents PID reuse and impersonation attacks.
+// session. Used after obtaining the handle on the authenticated pipe client.
 func (c *Coordinator) SetRustProcessHandle(rustPid uint32, handle windows.Handle) error {
+	if rustPid == 0 || handle == 0 || handle == windows.InvalidHandle {
+		return fmt.Errorf("invalid PID or handle")
+	}
+	actualPid, err := windows.GetProcessId(handle)
+	if err != nil {
+		return fmt.Errorf("get process ID: %w", err)
+	}
+	if actualPid != rustPid {
+		return fmt.Errorf("PID mismatch: requested %d, handle has %d", rustPid, actualPid)
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.mode != Bonding {
 		return fmt.Errorf("cannot set Rust process handle: Mode B is not active")
 	}
-	if c.rustHandle != 0 {
+	if c.rustHandle != 0 && c.rustHandle != handle {
 		windows.CloseHandle(c.rustHandle)
 	}
 	c.rustPid = rustPid
@@ -196,12 +290,20 @@ func (c *Coordinator) SetRustProcessHandle(rustPid uint32, handle windows.Handle
 }
 
 // MonitorRustProcess starts a goroutine that watches the validated Rust
-// bonding-engine process handle and calls ReleaseMode when it exits. If pid is
-// 0, no monitoring is started. Returns a channel that is closed when the
-// process is observed to have exited.
-func (c *Coordinator) MonitorRustProcess(pid uint32) <-chan struct{} {
+// bonding-engine process handle and calls ReleaseMode when it exits. The
+// session ID is captured at startup; if ReleaseMode() is called by another
+// goroutine (e.g., mode switch or service shutdown), the session ID changes
+// and this monitor exits without calling ReleaseMode() again.
+func (c *Coordinator) MonitorRustProcess(rustPid uint32) <-chan struct{} {
 	done := make(chan struct{})
-	if pid == 0 {
+
+	c.mu.Lock()
+	h := c.rustHandle
+	session := c.session
+	currentMode := c.mode
+	c.mu.Unlock()
+
+	if h == 0 || currentMode != Bonding {
 		close(done)
 		return done
 	}
@@ -209,37 +311,37 @@ func (c *Coordinator) MonitorRustProcess(pid uint32) <-chan struct{} {
 	go func() {
 		defer close(done)
 
-		c.mu.Lock()
-		h := c.rustHandle
-		c.mu.Unlock()
-
-		if h == 0 {
-			// No validated handle; treat as exited.
-			_ = c.ReleaseMode()
-			return
-		}
-
-		// Wait with a bounded timeout so we poll rather than block forever.
 		for {
-			r1, _, _ := procWaitForSingleObject.Call(
-				uintptr(h),
-				uintptr(5*time.Second/time.Millisecond),
-			)
-			if r1 == uintptr(windows.WAIT_OBJECT_0) {
-				// Process exited.
+			event, err := windows.WaitForSingleObject(h, 200)
+			c.mu.Lock()
+			if c.session != session || c.mode != Bonding {
+				// Stale monitor or mode was released by another call; exit cleanly.
+				c.mu.Unlock()
+				return
+			}
+			c.mu.Unlock()
+
+			if event == uint32(windows.WAIT_OBJECT_0) {
+				// Process exited
 				_ = c.ReleaseMode()
 				return
 			}
-			if r1 == uintptr(windows.WAIT_TIMEOUT) {
-				// Still alive; poll again.
+			if event == uint32(windows.WAIT_TIMEOUT) {
+				// Polling interval expired; check condition again
 				continue
 			}
-			// Unexpected error; assume the process is gone and release.
-			_ = c.ReleaseMode()
-			return
+			// Unexpected wait error (e.g. handle closed or invalid)
+			if err != nil || event == uint32(windows.WAIT_FAILED) {
+				c.mu.Lock()
+				if c.session == session && c.mode == Bonding {
+					c.mu.Unlock()
+					_ = c.ReleaseMode()
+				} else {
+					c.mu.Unlock()
+				}
+				return
+			}
 		}
 	}()
 	return done
 }
-
-var _ = time.Second

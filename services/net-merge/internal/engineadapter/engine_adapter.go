@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"sync"
 
+	"golang.org/x/sys/windows"
+
 	netengine "multinet.ai/netmerge-service/internal/engine"
 	"multinet.ai/netmerge-service/internal/ipc"
 	"multinet.ai/netmerge-service/internal/mode"
@@ -215,9 +217,10 @@ func (e *engine) ModeBActive() bool {
 
 // SetModeB records the Mode B state. When active is true, the Rust bonding
 // engine (identified by rustPid) is granted Mode B and the kernel mutex is
-// acquired; when false, Mode B is released and the mutex is freed. If Mode B is
-// activated while Mode A is running, Mode A is stopped to preserve exclusivity.
-func (e *engine) SetModeB(active bool, rustPid uint32) error {
+// acquired with the validated process handle. When false, Mode B is released
+// and the mutex is freed. If Mode B is activated while Mode A is running, Mode
+// A is stopped to preserve exclusivity.
+func (e *engine) SetModeB(active bool, rustPid uint32, rustHandle windows.Handle) error {
 	e.mu.Lock()
 	if active {
 		if e.running {
@@ -235,7 +238,7 @@ func (e *engine) SetModeB(active bool, rustPid uint32) error {
 			e.mu.Unlock()
 		}
 		// Grant Mode B and acquire the kernel mutex, monitoring the Rust process.
-		if err := e.coord.RequestModeB(rustPid); err != nil {
+		if err := e.coord.RequestModeB(rustPid, rustHandle); err != nil {
 			return err
 		}
 		e.coord.MonitorRustProcess(rustPid)

@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+pub use crate::PIPE_VERSION;
+
 /// Incoming request from MultiNet to Net Merge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Request {

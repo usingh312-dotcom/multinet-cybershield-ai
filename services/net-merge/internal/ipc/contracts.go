@@ -96,10 +96,12 @@ type HealthResult struct {
 }
 
 // SetModeBParams are the parameters for the set_mode_b method.
-// The client PID is obtained by the server via GetNamedPipeClientProcessId()
-// on the authenticated pipe connection, not from a caller-supplied value.
+// When rust_pid is omitted or 0, the server binds to the authenticated named-pipe
+// client's PID. When specified, the server validates that the PID belongs to an
+// authorized Rust bonding engine process.
 type SetModeBParams struct {
-	Active bool `json:"active"`
+	Active  bool   `json:"active"`
+	RustPID uint32 `json:"rust_pid,omitempty"`
 }
 
 // Security limits for the IPC pipe.

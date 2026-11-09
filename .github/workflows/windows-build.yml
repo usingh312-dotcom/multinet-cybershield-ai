@@ -6,15 +6,17 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
 env:
   # Must match services/net-merge/go.mod exactly.
   GO_VERSION: "1.27.3"
   RUST_TOOLCHAIN: "stable"
 
 jobs:
-  build-and-test:
+  go-build-and-test:
     runs-on: windows-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,20 +27,11 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           check-latest: true
 
-      - name: Set up Rust ${{ env.RUST_TOOLCHAIN }}
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
       - name: Verify toolchain versions
         shell: pwsh
         run: |
           Write-Host "Go version:"
           go version
-          Write-Host "Rust version:"
-          rustc --version
-          Write-Host "Cargo version:"
-          cargo --version
 
       - name: Go dependency resolution
         working-directory: services/net-merge
@@ -51,10 +44,10 @@ jobs:
         working-directory: services/net-merge
         shell: pwsh
         run: |
-          go fmt ./...
+          gofmt -l .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Go static analysis
+      - name: Go static analysis (vet)
         working-directory: services/net-merge
         shell: pwsh
         run: |
@@ -76,7 +69,34 @@ jobs:
         working-directory: services/net-merge
         shell: pwsh
         run: |
-          go test ./... -v
+          go test ./... -count=1 -v
+
+      - name: Upload Go binary artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: net-merge-service
+          path: services/net-merge/net-merge-service.exe
+          retention-days: 7
+
+  rust-build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Verify toolchain versions
+        shell: pwsh
+        run: |
+          Write-Host "Rust version:"
+          rustc --version
+          Write-Host "Cargo version:"
+          cargo --version
 
       - name: Rust workspace check
         shell: pwsh
@@ -87,11 +107,3 @@ jobs:
         shell: pwsh
         run: |
           cargo test --workspace
-
-      - name: Upload Go binary artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: net-merge-service
-          path: services/net-merge/net-merge-service.exe
-          retention-days: 7

@@ -121,7 +121,16 @@ func (s *Server) Run(ctx context.Context) error {
 	s.mu.Lock()
 	s.pipe = pipe
 	s.mu.Unlock()
-	defer windows.CloseHandle(pipe)
+	defer func() {
+		s.mu.Lock()
+		p := s.pipe
+		s.pipe = 0
+		s.mu.Unlock()
+		if p != 0 && p != windows.InvalidHandle {
+			_ = windows.DisconnectNamedPipe(p)
+			_ = windows.CloseHandle(p)
+		}
+	}()
 
 	log.Printf("net-merge IPC listening on %s", s.pipeName)
 
@@ -153,20 +162,8 @@ func (s *Server) Run(ctx context.Context) error {
 			}
 		}
 
-		// Validate the client's Windows security identity before processing.
-		ci, err := validateClientIdentity(pipe)
-		if err != nil {
-			log.Printf("ipc: unauthorized client rejected: %v", err)
-			windows.DisconnectNamedPipe(pipe)
-			// Create a fresh pipe instance for the next client.
-			pipe, err = securePipe(s.pipeName)
-			if err != nil {
-				return fmt.Errorf("recreate named pipe after rejection: %w", err)
-			}
-			s.mu.Lock()
-			s.pipe = pipe
-			s.mu.Unlock()
-			continue
+		if s.isClosed() || ctx.Err() != nil {
+			return nil
 		}
 
 		// Create the next pipe instance so we can keep accepting while
@@ -175,30 +172,31 @@ func (s *Server) Run(ctx context.Context) error {
 		if err != nil {
 			log.Printf("ipc: create next pipe instance: %v", err)
 			windows.DisconnectNamedPipe(pipe)
+			windows.CloseHandle(pipe)
 			continue
 		}
 
+		clientPipe := pipe
+		s.mu.Lock()
+		s.pipe = nextPipe
+		s.mu.Unlock()
+		pipe = nextPipe
+
 		// Handle the current client; the goroutine owns the handle and
 		// disconnects/closes it when done.
-		go func() {
+		go func(h windows.Handle) {
 			// Concurrency limit: reject if too many simultaneous connections.
 			select {
 			case s.connSem <- struct{}{}:
 				defer func() { <-s.connSem }()
 			default:
 				log.Printf("ipc: too many concurrent connections, rejecting")
-				windows.DisconnectNamedPipe(pipe)
-				windows.CloseHandle(pipe)
+				windows.DisconnectNamedPipe(h)
+				windows.CloseHandle(h)
 				return
 			}
-			s.HandleConn(pipe, ci)
-		}()
-
-		// Move to the next pipe instance.
-		s.mu.Lock()
-		s.pipe = nextPipe
-		s.mu.Unlock()
-		pipe = nextPipe
+			s.HandleConn(h)
+		}(clientPipe)
 	}
 }
 

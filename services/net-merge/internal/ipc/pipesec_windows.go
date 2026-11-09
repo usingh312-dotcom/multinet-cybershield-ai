@@ -338,21 +338,28 @@ func (a *Authorizer) Authorize(method string, ci ClientIdentity) error {
 // HandleConn serves a single client connection over a Windows pipe handle.
 // Disconnecting or closing the pipe handle does NOT terminate any active Mode B
 // session; Mode B is bound to the engine process lifetime, not the pipe connection.
-func (s *Server) HandleConn(h windows.Handle, ci ClientIdentity) {
-	defer func() {
-		windows.DisconnectNamedPipe(h)
-		windows.CloseHandle(h)
-	}()
-
+func (s *Server) HandleConn(h windows.Handle, initialCi ...ClientIdentity) {
 	f := os.NewFile(uintptr(h), s.pipeName)
 	if f == nil {
-		log.Printf("ipc: os.NewFile failed for pipe handle")
+		windows.DisconnectNamedPipe(h)
+		windows.CloseHandle(h)
 		return
 	}
-	defer f.Close()
+	defer func() {
+		_ = windows.DisconnectNamedPipe(h)
+		_ = f.Close()
+	}()
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024), MaxMessageSize)
+
+	var ci ClientIdentity
+	var authenticated bool
+	if len(initialCi) > 0 && (initialCi[0].IsAdmin || initialCi[0].IsUser || initialCi[0].IsSystem) {
+		ci = initialCi[0]
+		authenticated = true
+	}
+
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -364,6 +371,19 @@ func (s *Server) HandleConn(h windows.Handle, ci ClientIdentity) {
 			_ = writeResp(f, resp)
 			continue
 		}
+
+		if !authenticated {
+			var err error
+			ci, err = validateClientIdentity(h)
+			if err != nil {
+				log.Printf("ipc: unauthorized client rejected: %v", err)
+				resp := NewErrorResponse("auth", "unauthorized", err.Error(), false)
+				_ = writeResp(f, resp)
+				return
+			}
+			authenticated = true
+		}
+
 		var req Request
 		if err := json.Unmarshal(line, &req); err != nil {
 			resp := NewErrorResponse("parse", "invalid_json", err.Error(), false)

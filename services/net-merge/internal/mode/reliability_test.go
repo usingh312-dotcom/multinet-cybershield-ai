@@ -128,8 +128,8 @@ func TestRapidModeContentionConcurrent(t *testing.T) {
 func TestFaultInjectionBondingEngineCrashesUnexpectedly(t *testing.T) {
 	c := newTestCoordinator(t, "engine-crash")
 
-	// Start a short-lived process that terminates quickly
-	cmd := exec.Command("cmd.exe", "/c", "timeout /t 1 >nul")
+	// Start a process that we will terminate
+	cmd := exec.Command("cmd.exe", "/c", "timeout /t 5 >nul")
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start simulated engine process: %v", err)
 	}
@@ -145,17 +145,18 @@ func TestFaultInjectionBondingEngineCrashesUnexpectedly(t *testing.T) {
 		t.Fatal("expected Mode B active")
 	}
 
+	// Launch monitor on the child process handle
+	monitorDone := c.MonitorRustProcess(childPid)
+
 	// Kill the child process unexpectedly to simulate a crash
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
 
 	// Wait for process monitor to detect termination and release Mode B
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if !c.IsBonding() {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
+	select {
+	case <-monitorDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for monitor to detect process termination")
 	}
 
 	if c.IsBonding() {
@@ -198,3 +199,4 @@ func TestFaultInjectionAbandonedMutexStress(t *testing.T) {
 		t.Fatalf("ReleaseMode: %v", err)
 	}
 }
+

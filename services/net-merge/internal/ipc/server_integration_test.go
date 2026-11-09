@@ -73,7 +73,40 @@ func (m *testMockEngine) SetModeB(active bool, rustPid uint32, rustHandle window
 	return nil
 }
 
-func connectTestClient(pipeName string) (*os.File, error) {
+type testClient struct {
+	file   *os.File
+	reader *bufio.Reader
+}
+
+func (c *testClient) Close() error {
+	return c.file.Close()
+}
+
+func (c *testClient) Write(b []byte) (int, error) {
+	return c.file.Write(b)
+}
+
+func (c *testClient) roundTrip(req ipc.Request) (ipc.Response, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return ipc.Response{}, err
+	}
+	b = append(b, '\n')
+	if _, err := c.file.Write(b); err != nil {
+		return ipc.Response{}, err
+	}
+	line, err := c.reader.ReadBytes('\n')
+	if err != nil {
+		return ipc.Response{}, fmt.Errorf("read error: %w", err)
+	}
+	var resp ipc.Response
+	if err := json.Unmarshal(line, &resp); err != nil {
+		return ipc.Response{}, err
+	}
+	return resp, nil
+}
+
+func connectTestClient(pipeName string) (*testClient, error) {
 	pName := pipeName
 	if !strings.HasPrefix(pName, `\\.\pipe\`) {
 		pName = `\\.\pipe\` + pName
@@ -83,7 +116,7 @@ func connectTestClient(pipeName string) (*os.File, error) {
 		return nil, err
 	}
 
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 50; i++ {
 		h, err := windows.CreateFile(
 			name,
 			windows.GENERIC_READ|windows.GENERIC_WRITE,
@@ -94,31 +127,12 @@ func connectTestClient(pipeName string) (*os.File, error) {
 			0,
 		)
 		if err == nil {
-			return os.NewFile(uintptr(h), pName), nil
+			f := os.NewFile(uintptr(h), pName)
+			return &testClient{file: f, reader: bufio.NewReader(f)}, nil
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	return nil, fmt.Errorf("timeout waiting to connect to pipe %s", pipeName)
-}
-
-func roundTrip(f *os.File, req ipc.Request) (ipc.Response, error) {
-	b, err := json.Marshal(req)
-	if err != nil {
-		return ipc.Response{}, err
-	}
-	b = append(b, '\n')
-	if _, err := f.Write(b); err != nil {
-		return ipc.Response{}, err
-	}
-	scanner := bufio.NewScanner(f)
-	if !scanner.Scan() {
-		return ipc.Response{}, fmt.Errorf("scan error: %v", scanner.Err())
-	}
-	var resp ipc.Response
-	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
-		return ipc.Response{}, err
-	}
-	return resp, nil
 }
 
 // TestIPCServerLifecycleAndHandshake verifies full client/server roundtrip
@@ -148,7 +162,7 @@ func TestIPCServerLifecycleAndHandshake(t *testing.T) {
 		PipeVersion: ipc.PIPEVersion,
 		Method:      ipc.MethodHealth,
 	}
-	resp, err := roundTrip(client, req)
+	resp, err := client.roundTrip(req)
 	if err != nil {
 		t.Fatalf("health roundtrip: %v", err)
 	}
@@ -165,7 +179,7 @@ func TestIPCServerLifecycleAndHandshake(t *testing.T) {
 		PipeVersion: ipc.PIPEVersion,
 		Method:      ipc.MethodAdapters,
 	}
-	respAdapters, err := roundTrip(client, reqAdapters)
+	respAdapters, err := client.roundTrip(reqAdapters)
 	if err != nil {
 		t.Fatalf("adapters roundtrip: %v", err)
 	}
@@ -179,7 +193,7 @@ func TestIPCServerLifecycleAndHandshake(t *testing.T) {
 		PipeVersion: ipc.PIPEVersion,
 		Method:      ipc.MethodStatus,
 	}
-	respStatus, err := roundTrip(client, reqStatus)
+	respStatus, err := client.roundTrip(reqStatus)
 	if err != nil {
 		t.Fatalf("status roundtrip: %v", err)
 	}
@@ -193,7 +207,7 @@ func TestIPCServerLifecycleAndHandshake(t *testing.T) {
 		PipeVersion: ipc.PIPEVersion,
 		Method:      ipc.MethodModeBStatus,
 	}
-	respModeB, err := roundTrip(client, reqModeB)
+	respModeB, err := client.roundTrip(reqModeB)
 	if err != nil {
 		t.Fatalf("mode_b_status roundtrip: %v", err)
 	}
@@ -250,7 +264,7 @@ func TestIPCConcurrentClientsStress(t *testing.T) {
 					PipeVersion: ipc.PIPEVersion,
 					Method:      ipc.MethodHealth,
 				}
-				resp, err := roundTrip(client, req)
+				resp, err := client.roundTrip(req)
 				if err != nil {
 					t.Errorf("client %d req %d roundtrip error: %v", clientID, r, err)
 					return
@@ -302,7 +316,7 @@ func TestIPCClientAbruptDisconnect(t *testing.T) {
 		PipeVersion: ipc.PIPEVersion,
 		Method:      ipc.MethodHealth,
 	}
-	resp, err := roundTrip(client2, req)
+	resp, err := client2.roundTrip(req)
 	if err != nil {
 		t.Fatalf("roundtrip after disconnect: %v", err)
 	}
@@ -339,12 +353,12 @@ func TestIPCInvalidJsonAndOversizedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write invalid json: %v", err)
 	}
-	scanner := bufio.NewScanner(client)
-	if !scanner.Scan() {
-		t.Fatalf("scan response: %v", scanner.Err())
+	line, err := client.reader.ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read response: %v", err)
 	}
 	var resp ipc.Response
-	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(line, &resp); err != nil {
 		t.Fatalf("unmarshal error resp: %v", err)
 	}
 	if resp.OK {
@@ -357,3 +371,4 @@ func TestIPCInvalidJsonAndOversizedPayload(t *testing.T) {
 	cancel()
 	_ = server.Close()
 }
+

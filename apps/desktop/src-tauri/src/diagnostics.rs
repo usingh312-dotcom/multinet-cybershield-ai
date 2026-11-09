@@ -383,7 +383,7 @@ pub async fn get_traffic_snapshot(
 ) -> Result<TrafficSnapshotDto, IpcError> {
     let mut snapshot = lock(&state.latest).clone().unwrap_or_else(|| TrafficSnapshotDto {
         sampled_at: now_rfc3339(),
-        source: "GetIfTable2",
+        source: "GetIfTable2".into(),
         monitor_active: state.running.load(Ordering::Relaxed),
         interfaces: Vec::new(),
         physical_rx_bps: None,
@@ -483,31 +483,34 @@ pub fn list_network_interfaces() -> Result<Vec<InterfaceDto>, IpcError> {
         .map_err(|e| IpcError::internal(format!("interface discovery failed: {e}")))?;
     Ok(interfaces
         .into_iter()
-        .map(|interface| InterfaceDto {
-            id: interface.id,
-            name: interface.name,
-            description: interface.description,
-            kind: kind_label(Some(&interface), interface.if_type),
-            interface_index: interface.interface_index,
-            is_up: interface.is_up,
-            is_physical: interface.is_physical,
-            ipv4_addresses: interface
-                .addresses
-                .iter()
-                .filter(|a| a.is_ipv4())
-                .map(|a| a.to_string())
-                .collect(),
-            ipv6_addresses: interface
-                .addresses
-                .iter()
-                .filter(|a| a.is_ipv6())
-                .map(|a| a.to_string())
-                .collect(),
-            mac_address: interface.mac_address,
-            mtu: interface.mtu,
-            link_speed_bps: interface
-                .transmit_link_speed_bps
-                .max(interface.receive_link_speed_bps),
+        .map(|interface| {
+            let kind = kind_label(Some(&interface), interface.if_type);
+            InterfaceDto {
+                id: interface.id,
+                name: interface.name,
+                description: interface.description,
+                kind,
+                interface_index: interface.interface_index,
+                is_up: interface.is_up,
+                is_physical: interface.is_physical,
+                ipv4_addresses: interface
+                    .addresses
+                    .iter()
+                    .filter(|a| a.is_ipv4())
+                    .map(|a| a.to_string())
+                    .collect(),
+                ipv6_addresses: interface
+                    .addresses
+                    .iter()
+                    .filter(|a| a.is_ipv6())
+                    .map(|a| a.to_string())
+                    .collect(),
+                mac_address: interface.mac_address,
+                mtu: interface.mtu,
+                link_speed_bps: interface
+                    .transmit_link_speed_bps
+                    .max(interface.receive_link_speed_bps),
+            }
         })
         .collect())
 }
@@ -758,9 +761,9 @@ pub fn get_speed_test_status(
     state: tauri::State<'_, DiagnosticsState>,
     id: String,
 ) -> Result<SpeedTestStatusDto, IpcError> {
-    let runs = lock(&state.speed.runs);
-    let run = runs
+    let run = lock(&state.speed.runs)
         .get(&id)
+        .cloned()
         .ok_or_else(|| IpcError::not_found("speed test run not found"))?;
     let outcome = lock(&run.outcome);
     let (state_label, report, error) = match &*outcome {
@@ -783,9 +786,9 @@ pub fn cancel_speed_test(
     state: tauri::State<'_, DiagnosticsState>,
     id: String,
 ) -> Result<(), IpcError> {
-    let runs = lock(&state.speed.runs);
-    let run = runs
+    let run = lock(&state.speed.runs)
         .get(&id)
+        .cloned()
         .ok_or_else(|| IpcError::not_found("speed test run not found"))?;
     run.cancel.store(true, Ordering::Relaxed);
     Ok(())

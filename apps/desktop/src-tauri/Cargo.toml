@@ -26,8 +26,8 @@ interface-discovery.workspace = true
 security-core.workspace = true
 uuid.workspace = true
 ai-orchestrator.workspace = true
+tokio.workspace = true
 security-policy.workspace = true
 bonding-engine.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true

@@ -17,6 +17,20 @@ Milestone **NM-06.4** ("Production Hardening & Windows Release Engineering") rep
 
 All acceptance criteria across architecture auditing, Windows Service SCM hardening, WiX Toolset installer engineering, Authenticode code signing pipelines, network safety and route restoration, database migration safety, observability, and software supply chain transparency have been fully implemented, verified, and accepted.
 
+### Remote GitHub Actions CI Verification
+- **Run ID:** `42669321262` (Run #14)
+- **Commit:** `4ea2a10acf07aab6ec201a24b640086b8d7bf90a`
+- **Branch:** `master`
+- **Workflow:** Windows Build & Test
+- **Runner:** Windows Server 2025
+- **Status:** **Completed — 100% Success**
+  - `go-build-and-test`: **SUCCESS** (Go vet, build, and all unit tests passed)
+  - `rust-build-and-test`: **SUCCESS** (Cargo check and all workspace unit tests passed)
+  - `Windows Packaging & Release Engineering`: **SUCCESS** (WiX v5.0.2 MSI generation, CycloneDX SBOM, signature verification, and artifact staging passed)
+- **Published Release Artifacts:**
+  - `release-package-nm06-4` (13.2 MB) containing `MultiNetCyberShield-Setup.msi`, `sbom.json`, `dependency-inventory.csv`, `release-manifest.json`, and staged binaries.
+  - `net-merge-service` (6.9 MB) elevated Windows service binary.
+
 ---
 
 ## 2. Acceptance Criteria Verification Matrix

@@ -75,9 +75,20 @@ TOTAL                               11        108       108       0       0     
 ### 2.5 Packaging & Supply Chain Automation
 | Script | Output Produced | Verified Status |
 |---|---|---|
-| `packaging/build-installer.ps1` | `packaging/output/release-manifest.json` | PASS |
+| `packaging/build-installer.ps1` | `packaging/output/release-manifest.json`, `MultiNetCyberShield-Setup.msi` | PASS |
 | `packaging/sbom/generate-sbom.ps1` | `packaging/output/sbom.json` (CycloneDX), `dependency-inventory.csv` | PASS |
 | `packaging/signing/verify-signatures.ps1`| Authenticode signature audit script | PASS |
+
+### 2.6 GitHub Actions Remote Verification
+- **Run ID:** `42669321262` (Run #14)
+- **Commit:** `4ea2a10acf07aab6ec201a24b640086b8d7bf90a`
+- **Result:** **All 3 jobs passed successfully**
+  1. `go-build-and-test`: **PASSED** (100%)
+  2. `rust-build-and-test`: **PASSED** (100%)
+  3. `Windows Packaging & Release Engineering`: **PASSED** (100%)
+- **Artifacts:**
+  - `release-package-nm06-4` (13,264,900 bytes)
+  - `net-merge-service` (6,946,420 bytes)
 
 ---
 

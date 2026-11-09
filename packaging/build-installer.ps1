@@ -124,3 +124,10 @@ $ManifestPath = Join-Path $FullOutput "release-manifest.json"
 $Manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $ManifestPath
 Write-Host "`nWrote Release Manifest: $ManifestPath" -ForegroundColor Green
 
+# 8. Assemble Beta Distribution Package
+$BetaPackager = Join-Path $ScriptDir "package-beta.ps1"
+if (Test-Path $BetaPackager) {
+    Write-Host "`nInvoking Beta Distribution Packager..." -ForegroundColor Cyan
+    & $BetaPackager -OutputDir $OutputDir -StagingDir $StagingDir
+}
+

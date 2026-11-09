@@ -82,7 +82,6 @@ jobs:
           retention-days: 7
 
   rust-build-and-test:
-    needs: [go-build-and-test]
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -145,11 +144,6 @@ jobs:
         shell: pwsh
         run: |
           .\packaging\signing\verify-signatures.ps1
-
-      - name: Assemble Beta Distribution Package
-        shell: pwsh
-        run: |
-          .\packaging\package-beta.ps1
 
       - name: Upload Release Package Artifacts
         if: success()

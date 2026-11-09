@@ -1,0 +1,7 @@
+﻿cargo :     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.19s
+At line:1 char:1
++ cargo check -p bonding-engine 2>&1 | Out-File -FilePath "D:\git\multi ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Finished `d...get(s) in 0.19s:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -1,0 +1,8 @@
+﻿cargo :     Checking netmerge-client v0.1.0 (D:\git\multinet-cybershield-ai\crates\netmerge-client)
+At line:1 char:1
++ cargo check -p netmerge-client 2>&1 | Out-File -FilePath "D:\git\mult ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Checking ne...etmerge-client):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.49s

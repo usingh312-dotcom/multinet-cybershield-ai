@@ -15,14 +15,19 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
+async-trait.workspace = true
+time.workspace = true
 telemetry.workspace = true
 audit-logger.workspace = true
 network-core.workspace = true
+network-monitor.workspace = true
+speed-test.workspace = true
+interface-discovery.workspace = true
 security-core.workspace = true
+uuid.workspace = true
 ai-orchestrator.workspace = true
 security-policy.workspace = true
 bonding-engine.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
-uuid.workspace = true

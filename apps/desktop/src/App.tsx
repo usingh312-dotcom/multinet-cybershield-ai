@@ -1,57 +1,92 @@
-﻿import { useEffect, useState } from "react";
-import Sidebar from "./components/Sidebar";
-import { navItems, useAppStore } from "./store/appStore";
-import { getFoundationStatus, type FoundationStatus } from "./api";
+import { Suspense, lazy, useEffect } from "react";
+import { useSystemStore } from "./store/systemStore";
+import { type NavId, navItems, useAppStore } from "./store/appStore";
+import { AppLayout } from "./components/AppLayout";
+import { PageContainer, PageHeader } from "./components/ui/structure";
+import { EmptyState } from "./components/ui/feedback";
+import { IconDatabase } from "./components/ui/icons";
+import OverviewPage from "./pages/Overview";
 
-export default function App() {
-  const { active } = useAppStore();
-  const [status, setStatus] = useState<FoundationStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const label = navItems.find((n) => n.id === active)?.label ?? "Overview";
+// Route-level dynamic imports: each heavy or infrequently-used screen loads on
+// first navigation.Overview stays part of the shell; Recharts travels only with
+// the TrafficAnalytics chunk.
+const NetworkManagerPage = lazy(() => import("./pages/NetworkManager"));
+const InternetBondingPage = lazy(() => import("./pages/InternetBonding"));
+const TrafficAnalyticsPage = lazy(() => import("./pages/TrafficAnalytics"));
+const SpeedTestPage = lazy(() => import("./pages/SpeedTest"));
+const IncidentResponsePage = lazy(() => import("./pages/IncidentResponse"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const SecurityOverviewPage = lazy(() => import("./pages/SecurityOverview"));
+const ThreatDetectionPage = lazy(() => import("./pages/ThreatDetection"));
+const ThreatIntelligencePage = lazy(() => import("./pages/ThreatIntelligence"));
+const EndpointSecurityPage = lazy(() => import("./pages/EndpointSecurity"));
+const DnsProtectionPage = lazy(() => import("./pages/DnsProtection"));
+const AiFirewallPage = lazy(() => import("./pages/AiFirewall"));
+const SecurityReportsPage = lazy(() => import("./pages/SecurityReports"));
+const AiCopilotPage = lazy(() => import("./pages/AiCopilot"));
 
-  useEffect(() => {
-    getFoundationStatus().then(setStatus).catch((e) => setError(String(e)));
-  }, []);
-
+function PageFallback() {
   return (
-    <div className="h-screen flex bg-charcoal-950 text-slate-100">
-      <Sidebar />
-      <main className="flex-1 min-w-0 flex flex-col">
-        <header className="border-b border-charcoal-700 bg-charcoal-900/50 px-6 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold">{label}</h1>
-            <p className="text-xs text-slate-400">Phase 1 foundation — no live network or security operations</p>
-          </div>
-          <div className="text-xs rounded-md border border-charcoal-700 bg-charcoal-800 px-3 py-1.5 text-slate-300">
-            {status ? `${status.product} v${status.version}` : error ? "Tauri bridge unavailable (web preview)" : "Loading..."}
-          </div>
-        </header>
-        <section className="flex-1 p-6 overflow-auto">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <Card title="Architecture" body="Three independent subsystems: MultiNet Network Engine, CyberShield Security Engine, AI Intelligence Engine. Interfaces are typed; implementations are stubs/mocks in Phase 1." />
-            <Card title="Safety posture" body="No network routes, firewall rules, DNS, or OS security settings are modified by this foundation. AI cannot execute arbitrary shell commands." />
-            <Card title="Measurements" body="No production network or threat metrics are displayed. Future telemetry will be sourced from verified collectors and labeled accordingly." />
-          </div>
-          <div className="mt-4 rounded-lg border border-charcoal-700 bg-charcoal-900 p-4">
-            <div className="text-sm font-medium text-slate-200">Selected module</div>
-            <div className="mt-1 text-sm text-slate-400">
-              <span className="text-cyan-300">{label}</span> — UI placeholder. Functional implementation is scheduled for Phase 2+ with verified platform integrations and tests.
-            </div>
-          </div>
-          {status && (
-            <pre className="mt-4 text-xs text-slate-500 whitespace-pre-wrap">{JSON.stringify(status, null, 2)}</pre>
-          )}
-        </section>
-      </main>
-    </div>
+    <PageContainer>
+      <div role="status" aria-live="polite" className="animate-pulse space-y-4" aria-busy="true" aria-label="Loading screen">
+        <div className="h-7 w-64 rounded-lg bg-charcoal-700/50" />
+        <div className="h-4 w-96 rounded bg-charcoal-700/40" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-28 rounded-xl3 border border-charcoal-600/60 bg-elevated/60 shadow-panel" />
+          ))}
+        </div>
+        <div className="h-64 rounded-xl2 border border-charcoal-600/60 bg-elevated/60 shadow-panel" />
+      </div>
+    </PageContainer>
   );
 }
 
-function Card({ title, body }: { title: string; body: string }) {
+export default function App() {
+  const { active } = useAppStore();
+  const refresh = useSystemStore((s) => s.refresh);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
   return (
-    <div className="rounded-lg border border-charcoal-700 bg-charcoal-900 p-4">
-      <div className="text-sm font-medium text-slate-100">{title}</div>
-      <div className="mt-2 text-sm leading-6 text-slate-400">{body}</div>
-    </div>
+    <AppLayout>
+      <Suspense fallback={<PageFallback />}>
+        {active === "overview" ? <OverviewPage />
+          : active === "network-manager" ? <NetworkManagerPage />
+          : active === "internet-bonding" ? <InternetBondingPage />
+          : active === "traffic-analytics" ? <TrafficAnalyticsPage />
+          : active === "speed-test" ? <SpeedTestPage />
+          : active === "incident-response" ? <IncidentResponsePage />
+          : active === "settings" ? <SettingsPage />
+          : active === "security-overview" ? <SecurityOverviewPage />
+          : active === "threat-detection" ? <ThreatDetectionPage />
+          : active === "threat-intelligence" ? <ThreatIntelligencePage />
+          : active === "endpoint-security" ? <EndpointSecurityPage />
+          : active === "dns-protection" ? <DnsProtectionPage />
+          : active === "ai-firewall" ? <AiFirewallPage />
+          : active === "security-reports" ? <SecurityReportsPage />
+          : active === "ai-copilot" ? <AiCopilotPage />
+          : <PlaceholderPage active={active} />}
+      </Suspense>
+    </AppLayout>
+  );
+}
+
+function PlaceholderPage({ active }: { active: NavId }) {
+  const item = navItems.find((n) => n.id === active);
+  return (
+    <PageContainer>
+      <PageHeader
+        title={item?.label ?? "Screen"}
+        subtitle="Phase 1 placeholder — functional implementation is scheduled for Phase 2+ with verified platform integrations."
+      />
+      <div className="pt-6">
+        <EmptyState
+          icon={<IconDatabase size={18} />}
+          title="Implementation pending"
+          description="This screen is Phase 1 navigation scaffolding. Scope, data contracts and platform integrations are defined in later phases. No placeholder metrics are displayed."
+        />
+      </div>
+    </PageContainer>
   );
 }

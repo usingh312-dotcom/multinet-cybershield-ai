@@ -4,6 +4,14 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
+pub mod path_manager;
+pub mod scheduler;
+pub mod socket;
+
+pub use path_manager::{PathConfig, PathHealth, PathId, PathManager, PathStats};
+pub use scheduler::{SchedulerStats, ScheduledPacket, WeightedPacketScheduler};
+pub use socket::{BondedSocket, SocketError};
+
 #[derive(Debug, Error)]
 pub enum BondingError {
     #[error("session not started: {0}")]

@@ -4,7 +4,9 @@ members = [
   "apps/desktop/src-tauri",
   "crates/network-core",
   "crates/interface-discovery",
+  "crates/netmerge-client",
   "crates/network-monitor",
+  "crates/speed-test",
   "crates/routing-engine",
   "crates/bonding-engine",
   "crates/tunnel-protocol",
@@ -23,6 +25,7 @@ members = [
   "relay/bonding-server",
   "relay/session-manager",
   "relay/security-api",
+  "relay/speedtest-server",
 ]
 
 [workspace.package]
@@ -43,10 +46,41 @@ time = { version = "0.3", features = ["serde", "formatting"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate"] }
 axum = "0.7"
 
+# Diagnostics services (Day 11). These crates are new direct dependencies:
+# - reqwest: real HTTPS speed test transfers using the Windows TLS stack
+#   (schannel), so no C TLS toolchain or extra crypto provider is required.
+# - axum-server + rcgen + rustls(ring): standalone HTTPS speed test service with
+#   a generated loopback-only self-signed certificate when no operator
+#   certificate is supplied. The ring provider keeps the build free of
+#   aws-lc-sys compiled C code.
+# - tower-http: request timeouts so transfers cannot hold a connection forever.
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "stream"] }
+axum-server = { version = "=0.7.1", default-features = false, features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
+rcgen = "0.13"
+tower-http = { version = "0.6", features = ["timeout"] }
+
+# Cryptographic primitives for authenticated packet framing in tunnel-protocol.
+hmac = { version = "0.12", features = ["std"] }
+sha2 = "0.10"
+
+# Windows platform bindings. Already present transitively in Cargo.lock; declared
+# directly here for IP Helper discovery and Winsock unicast-interface pinning.
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Networking_WinSock",
+] }
+
 network-core = { path = "crates/network-core" }
+network-monitor = { path = "crates/network-monitor" }
+speed-test = { path = "crates/speed-test" }
+interface-discovery = { path = "crates/interface-discovery" }
 security-core = { path = "crates/security-core" }
 ai-orchestrator = { path = "crates/ai-orchestrator" }
 telemetry = { path = "crates/telemetry" }
 audit-logger = { path = "crates/audit-logger" }
 security-policy = { path = "crates/security-policy" }
 bonding-engine = { path = "crates/bonding-engine" }
+tunnel-protocol = { path = "crates/tunnel-protocol" }

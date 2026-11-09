@@ -1,5 +1,5 @@
-﻿import { navItems, useAppStore } from "./store/appStore";
-import { cn } from "./lib/cn";
+import { navItems, useAppStore } from "../store/appStore";
+import { cn } from "../lib/cn";
 
 export default function Sidebar() {
   const { active, setActive } = useAppStore();

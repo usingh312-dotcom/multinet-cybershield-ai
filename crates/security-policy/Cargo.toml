@@ -12,3 +12,6 @@ tracing.workspace = true
 uuid.workspace = true
 time.workspace = true
 audit-logger.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

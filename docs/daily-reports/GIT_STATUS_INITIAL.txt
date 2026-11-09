@@ -1,0 +1,75 @@
+﻿ M Cargo.toml
+ M apps/desktop/index.html
+ M apps/desktop/package.json
+ M apps/desktop/postcss.config.js
+ M apps/desktop/src-tauri/Cargo.toml
+ M apps/desktop/src-tauri/capabilities/default.json
+ M apps/desktop/src-tauri/src/db.rs
+ M apps/desktop/src-tauri/src/main.rs
+ M apps/desktop/src-tauri/tauri.conf.json
+ M apps/desktop/src/App.tsx
+ M apps/desktop/src/api.ts
+ M apps/desktop/src/components/Sidebar.tsx
+ M apps/desktop/src/index.css
+ M apps/desktop/src/lib/cn.ts
+ M apps/desktop/src/main.tsx
+ M apps/desktop/src/store/appStore.ts
+ M apps/desktop/tailwind.config.js
+ M apps/desktop/tsconfig.json
+ M apps/desktop/tsconfig.node.json
+ M apps/desktop/vite.config.ts
+ M crates/ai-orchestrator/Cargo.toml
+ M crates/bonding-engine/Cargo.toml
+ M crates/bonding-engine/src/lib.rs
+ M crates/interface-discovery/Cargo.toml
+ M crates/interface-discovery/src/lib.rs
+ M crates/network-core/Cargo.toml
+ M crates/network-core/src/lib.rs
+ M crates/network-monitor/Cargo.toml
+ M crates/network-monitor/src/lib.rs
+ M crates/security-core/Cargo.toml
+ M crates/security-policy/Cargo.toml
+ M crates/telemetry/Cargo.toml
+ M crates/tunnel-protocol/Cargo.toml
+ M crates/tunnel-protocol/src/lib.rs
+?? apps/desktop/package-lock.json
+?? apps/desktop/src-tauri/icons/icon.ico
+?? apps/desktop/src-tauri/src/diagnostics.rs
+?? apps/desktop/src/components/AppLayout.tsx
+?? apps/desktop/src/components/ApplicationHeader.tsx
+?? apps/desktop/src/components/ApplicationSidebar.tsx
+?? apps/desktop/src/components/ModuleTabs.tsx
+?? apps/desktop/src/components/ui/
+?? apps/desktop/src/pages/
+?? apps/desktop/src/store/systemStore.ts
+?? apps/desktop/src/types/
+?? apps/desktop/tsconfig.node.tsbuildinfo
+?? apps/desktop/tsconfig.tsbuildinfo
+?? apps/desktop/vite.config.d.ts
+?? apps/desktop/vite.config.js
+?? crates/bonding-engine/src/path_manager.rs
+?? crates/bonding-engine/src/scheduler.rs
+?? crates/bonding-engine/src/socket.rs
+?? crates/interface-discovery/src/windows.rs
+?? crates/speed-test/
+?? crates/tunnel-protocol/src/framing.rs
+?? database/sqlite/migrations/002_security_infrastructure.sql
+?? database/sqlite/migrations/003_diagnostics.sql
+?? docs/daily-reports/FRONTEND_DASHBOARD_RESTYLING_2026-11-09.md
+?? docs/daily-reports/GIT_STATUS_INITIAL.txt
+?? docs/daily-reports/PHASE1_VERIFICATION_2026-11-07_MSVC_REMEDIATION.md
+?? docs/daily-reports/PHASE2_BASELINE_AUDIT_2026-11-07.md
+?? docs/daily-reports/PHASE2_DAY02_NETWORK_WORKSPACE_2026-11-07.md
+?? docs/daily-reports/PHASE2_DAY03_TRAFFIC_SPEEDTEST_2026-11-07.md
+?? docs/daily-reports/PHASE2_DAY04_SECURITY_OVERVIEW_THREAT_DETECTION_2026-11-07.md
+?? docs/daily-reports/PHASE2_DAY05_THREAT_INTELLIGENCE_DNS_2026-11-07.md
+?? docs/daily-reports/PHASE2_DAY06_SECURITY_REPORTS_COPILOT_2026-11-07.md
+?? docs/daily-reports/PHASE2_DAY07_ENDPOINT_FIREWALL_2026-11-07.md
+?? docs/daily-reports/PHASE2_DAY08_INCIDENT_SETTINGS_2026-11-07.md
+?? docs/daily-reports/PHASE2_DAY09_BACKEND_SECURITY_READINESS_2026-11-08.md
+?? docs/daily-reports/PHASE2_DAY10_SECURITY_INFRASTRUCTURE_2026-11-08.md
+?? docs/daily-reports/PHASE2_DAY1_UIUX_2026-11-07.md
+?? docs/daily-reports/SAC_CODE_INTEGRITY_BLOCKER_2026-11-09.md
+?? docs/daily-reports/THREE_PATH_WEIGHTED_SCHEDULER_REPORT.md
+?? docs/daily-reports/assets/
+?? relay/speedtest-server/

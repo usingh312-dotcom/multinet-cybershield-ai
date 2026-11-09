@@ -1,0 +1,31 @@
+﻿cargo :     Checking h2 v0.4.20
+At line:1 char:1
++ cargo check --workspace 2>&1 | Out-File -FilePath "D:\git\multinet-cy ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Checking h2 v0.4.20:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling rustls v0.23.46
+    Checking json-patch v4.2.0
+    Checking walkdir v2.5.0
+    Checking tokio-native-tls v0.3.1
+    Checking tower-http v0.6.11
+    Checking sqlx-core v0.8.6
+    Checking wry v0.57.1
+    Checking tunnel-protocol v0.1.0 (D:\git\multinet-cybershield-ai\crates\tunnel-protocol)
+    Checking muda v0.20.0
+    Checking dirs v7.0.0
+    Checking tower v0.4.13
+    Checking serialize-to-javascript v0.1.2
+    Checking window-vibrancy v0.8.1
+    Checking tokio-rustls v0.26.6
+    Checking yasna v0.5.2
+error: failed to run custom build command for `rustls v0.23.46`
+
+Caused by:
+  could not execute process 
+`D:\git\multinet-cybershield-ai\target\debug\build\rustls-0c038394348bef9d\build-script-build` (never executed)
+
+Caused by:
+  An Application Control policy has blocked this file. (os error 4551)
+warning: build failed, waiting for other jobs to finish...

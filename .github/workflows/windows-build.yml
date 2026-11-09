@@ -1,0 +1,97 @@
+name: Windows Build & Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  # Must match services/net-merge/go.mod exactly.
+  GO_VERSION: "1.27.3"
+  RUST_TOOLCHAIN: "stable"
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+
+      - name: Set up Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Verify toolchain versions
+        shell: pwsh
+        run: |
+          Write-Host "Go version:"
+          go version
+          Write-Host "Rust version:"
+          rustc --version
+          Write-Host "Cargo version:"
+          cargo --version
+
+      - name: Go dependency resolution
+        working-directory: services/net-merge
+        shell: pwsh
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Go formatting check
+        working-directory: services/net-merge
+        shell: pwsh
+        run: |
+          go fmt ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Go static analysis
+        working-directory: services/net-merge
+        shell: pwsh
+        run: |
+          go vet ./...
+
+      - name: Go build
+        working-directory: services/net-merge
+        shell: pwsh
+        run: |
+          go build -o net-merge-service.exe .
+          if (Test-Path net-merge-service.exe) {
+            Write-Host "Go service binary produced successfully."
+          } else {
+            Write-Error "Go build did not produce net-merge-service.exe"
+            exit 1
+          }
+
+      - name: Go unit tests
+        working-directory: services/net-merge
+        shell: pwsh
+        run: |
+          go test ./... -v
+
+      - name: Rust workspace check
+        shell: pwsh
+        run: |
+          cargo check --workspace
+
+      - name: Rust unit tests
+        shell: pwsh
+        run: |
+          cargo test --workspace
+
+      - name: Upload Go binary artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: net-merge-service
+          path: services/net-merge/net-merge-service.exe
+          retention-days: 7

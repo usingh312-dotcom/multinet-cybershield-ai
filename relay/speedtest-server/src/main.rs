@@ -225,7 +225,10 @@ async fn run() -> Result<(), String> {
         .route("/download", get(download))
         .route("/upload", post(upload))
         .layer(DefaultBodyLimit::max(max_bytes as usize))
-        .layer(TimeoutLayer::new(REQUEST_TIMEOUT))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ))
         .with_state(state);
 
     let tls = axum_server::tls_rustls::RustlsConfig::from_pem(cert_pem, key_pem)

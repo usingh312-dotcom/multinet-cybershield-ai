@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "incident-response"
 version.workspace = true
 edition.workspace = true

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "dns-protection"
 version.workspace = true
 edition.workspace = true

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "tunnel-security"
 version.workspace = true
 edition.workspace = true

@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "endpoint-monitor"
 version.workspace = true
 edition.workspace = true

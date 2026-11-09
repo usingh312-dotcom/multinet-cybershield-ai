@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "firewall-manager"
 version.workspace = true
 edition.workspace = true

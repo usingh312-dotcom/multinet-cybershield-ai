@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "threat-intelligence"
 version.workspace = true
 edition.workspace = true

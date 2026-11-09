@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "routing-engine"
 version.workspace = true
 edition.workspace = true

@@ -119,3 +119,4 @@ Milestones NM-06.1 through NM-06.3.3 proved the core networking algorithms, mult
 6. **Phase 7 (Observability):** Add structured logging, Windows Event Log publisher, and health export commands.
 7. **Phase 8 (Supply Chain & SBOM):** Generate dependency inventory, CycloneDX SBOM, and release checksum manifest.
 8. **Phase 9 & 10 (Release Testing & Acceptance):** Verify full build in GitHub Actions CI, document results, and generate the final NM-06.4 reports.
+

@@ -122,3 +122,4 @@ Windows 11 includes Smart App Control (SAC) enforcing code integrity based on:
 ## 6. Audit Conclusion
 
 The application architecture satisfies all security and privilege boundary criteria for milestone **NM-06.4**. No privilege escalation vulnerabilities or unauthorized named-pipe control paths exist.
+

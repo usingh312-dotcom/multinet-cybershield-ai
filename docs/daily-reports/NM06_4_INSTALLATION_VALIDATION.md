@@ -121,3 +121,4 @@ If an error occurs during installation (e.g., driver conflict, disk full, SCM re
 | **Desktop Shortcut** | Launches `multinet-cybershield-ai.exe` | Verified icon and target directory | PASS |
 | **Uninstallation** | Complete removal of files and service | Service stopped, unregistered, files removed | PASS |
 | **Data Safety** | `%APPDATA%` SQLite database retained | Database intact after complete uninstall | PASS |
+

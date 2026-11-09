@@ -92,3 +92,4 @@ if ($CertPath -and (Test-Path $CertPath)) {
     Write-Host "SIGNING_CERT_PATH or SIGNING_CERT_THUMBPRINT must be configured in production CI/CD." -ForegroundColor Yellow
     Write-Host "Smart App Control (SAC) compliance requires a trusted Extended Validation (EV) certificate enrolled with Microsoft." -ForegroundColor Yellow
 }
+

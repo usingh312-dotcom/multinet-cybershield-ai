@@ -19,7 +19,7 @@
     <MediaTemplate EmbedCab="yes" />
 
     <!-- Application Icon -->
-    <Icon Id="AppIcon" SourceFile="resources/icon.ico" />
+    <Icon Id="AppIcon" SourceFile="$(var.SourceDir)/icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
     <Property Id="ARPHELPLINK" Value="https://multinet.ai/support" />
     <Property Id="ARPURLINFOABOUT" Value="https://multinet.ai" />
@@ -125,3 +125,4 @@
 
   </Package>
 </Wix>
+

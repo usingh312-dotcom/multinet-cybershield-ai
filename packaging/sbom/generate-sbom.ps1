@@ -121,3 +121,4 @@ if (Test-Path $StagingDir) {
 }
 $ChecksumLines | Set-Content -Path $ChecksumsPath
 Write-Host "[OK] Wrote SHA256 Checksums: $ChecksumsPath" -ForegroundColor Green
+

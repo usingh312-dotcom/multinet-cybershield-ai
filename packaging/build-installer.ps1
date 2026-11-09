@@ -53,6 +53,16 @@ if (Test-Path $DesktopBinary) {
     Set-Content -Path (Join-Path $FullStaging "multinet-cybershield-ai.exe") -Value "MultiNet CyberShield AI Desktop App Stub"
 }
 
+# 4b. Stage Application Icon
+$IconSrc = Join-Path $ScriptDir "wix\resources\icon.ico"
+if (Test-Path $IconSrc) {
+    Copy-Item $IconSrc (Join-Path $FullStaging "icon.ico") -Force
+    Write-Host "[OK] Staged icon.ico" -ForegroundColor Green
+}
+
+# Set WiX environment variables
+$env:WIX_ACCEPT_EULA = "yes"
+
 # 5. Calculate Staged Component Hashes
 Write-Host "`nStaged Component SHA256 Hashes:" -ForegroundColor Cyan
 $ManifestItems = @{}
@@ -112,3 +122,4 @@ $Manifest = @{
 $ManifestPath = Join-Path $FullOutput "release-manifest.json"
 $Manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $ManifestPath
 Write-Host "`nWrote Release Manifest: $ManifestPath" -ForegroundColor Green
+

@@ -119,3 +119,4 @@ The SQLite database schema evolves via versioned SQL migrations embedded into th
 | **Aborted Upgrade** | Power cut mid-installation | MSI transaction rollback restores previous files | PASS |
 | **Database Corruption Risk** | Schema migration interrupted | SQLite WAL journal ensures zero partial transactions | PASS |
 | **Orphaned Routes After Crash** | Lost internet access | Automatic `RunDisasterRecovery` on service startup | PASS |
+

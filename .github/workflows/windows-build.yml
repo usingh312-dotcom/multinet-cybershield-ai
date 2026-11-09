@@ -127,7 +127,7 @@ jobs:
       - name: Install WiX Toolset v5
         shell: pwsh
         run: |
-          dotnet tool install --global wix
+          dotnet tool install --global wix --version 5.0.2
           wix --version
 
       - name: Build Windows Installer (MSI)

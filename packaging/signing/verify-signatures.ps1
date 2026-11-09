@@ -56,3 +56,4 @@ if ($FailOnUnsigned -and $UnsignedCount -gt 0) {
     Write-Error "Production release failure: Found $UnsignedCount unsigned or untrusted binaries."
     exit 1
 }
+

@@ -114,7 +114,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.RegisterHandlers()
 
 	// Create the first pipe instance with a restrictive security descriptor.
-	pipe, err := securePipe(s.pipeName)
+	pipe, err := securePipe(s.pipeName, true)
 	if err != nil {
 		return fmt.Errorf("create named pipe %s: %w", s.pipeName, err)
 	}
@@ -148,7 +148,7 @@ func (s *Server) Run(ctx context.Context) error {
 				}
 				log.Printf("ipc: connect named pipe error: %v", err)
 				// Create a fresh pipe instance and retry.
-				pipe, err = securePipe(s.pipeName)
+				pipe, err = securePipe(s.pipeName, false)
 				if err != nil {
 					if s.isClosed() || ctx.Err() != nil {
 						return nil
@@ -168,7 +168,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 		// Create the next pipe instance so we can keep accepting while
 		// handling this client.
-		nextPipe, err := securePipe(s.pipeName)
+		nextPipe, err := securePipe(s.pipeName, false)
 		if err != nil {
 			log.Printf("ipc: create next pipe instance: %v", err)
 			windows.DisconnectNamedPipe(pipe)

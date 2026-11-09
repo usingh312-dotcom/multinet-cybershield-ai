@@ -75,11 +75,10 @@ var LocalSystemWellKnownSid = windows.WinLocalSystemSid
 // PIPE_REJECT_REMOTE_CLIENTS is set so that remote (SMB) clients cannot connect
 // to this local control interface. Only local processes can open the pipe.
 //
-// The security descriptor is created using windows.SecurityDescriptorFromString,
-// which returns a self-relative SECURITY_DESCRIPTOR allocated on the Go heap.
-// CreateNamedPipe copies the descriptor into the kernel pipe object during the
-// call, avoiding any memory leak or unsafe pointer conversions.
-func securePipe(pipeName string) (windows.Handle, error) {
+// When firstInstance is true (or omitted), FILE_FLAG_FIRST_PIPE_INSTANCE is set
+// to guarantee this process creates the first instance. Subsequent instances for
+// concurrent connections pass firstInstance=false to prevent ERROR_ACCESS_DENIED.
+func securePipe(pipeName string, firstInstance ...bool) (windows.Handle, error) {
 	sd, err := windows.SecurityDescriptorFromString(pipeSDDL)
 	if err != nil {
 		return 0, fmt.Errorf("security descriptor: %w", err)
@@ -99,9 +98,14 @@ func securePipe(pipeName string) (windows.Handle, error) {
 		return 0, err
 	}
 
+	var openMode uint32 = windows.PIPE_ACCESS_DUPLEX
+	if len(firstInstance) == 0 || firstInstance[0] {
+		openMode |= windows.FILE_FLAG_FIRST_PIPE_INSTANCE
+	}
+
 	h, err := windows.CreateNamedPipe(
 		name,
-		windows.PIPE_ACCESS_DUPLEX|windows.FILE_FLAG_FIRST_PIPE_INSTANCE,
+		openMode,
 		windows.PIPE_TYPE_MESSAGE|windows.PIPE_READMODE_MESSAGE|windows.PIPE_WAIT|PIPE_REJECT_REMOTE_CLIENTS,
 		windows.PIPE_UNLIMITED_INSTANCES,
 		MaxMessageSize, // out buffer size

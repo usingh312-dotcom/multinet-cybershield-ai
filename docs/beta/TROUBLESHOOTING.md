@@ -140,3 +140,4 @@ Compress-Archive -Path "$diagDir\*" -DestinationPath "$diagDir.zip"
 Write-Host "Diagnostic bundle saved to: $diagDir.zip" -ForegroundColor Green
 ```
 Attach `$diagDir.zip` to your GitHub issue report.
+

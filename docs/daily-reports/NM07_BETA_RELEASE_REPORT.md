@@ -125,3 +125,4 @@ flowchart LR
 **FINAL DECISION: GO / ACCEPTED FOR CONTROLLED BETA**
 
 Milestone **NM-07.0** is formally accepted. The release candidate package `MultiNetCyberShield-v0.1.0-beta.1-Windows-x64.zip` and all supporting qualifications are validated and ready for beta distribution.
+

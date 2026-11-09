@@ -117,3 +117,4 @@ if (Test-Path $ZipOutput) {
 
 # Cleanup beta-staging directory
 Remove-Item -Recurse -Force -Path $BetaStaging -ErrorAction SilentlyContinue
+

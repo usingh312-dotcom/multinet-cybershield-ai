@@ -47,9 +47,10 @@ var (
 	ipv6       = flag.String("ipv6", "auto", "IPv6 mode: auto/on/off")
 	acquireSec = flag.Uint("acquire-timeout", 5, "seconds to wait for mode mutex before failing")
 	console    = flag.Bool("console", false, "run interactively in console instead of Windows Service")
-	action      = flag.String("action", "", "service action: install, uninstall, start, stop, status")
-	versionFlag = flag.Bool("version", false, "display version and build information")
+	action     = flag.String("action", "", "service action: install, uninstall, start, stop, status")
 )
+
+var versionFlag = flag.Bool("version", false, "display version and build information")
 
 const AppVersion = "0.1.0-beta.1"
 

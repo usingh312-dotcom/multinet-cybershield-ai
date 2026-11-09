@@ -73,3 +73,4 @@ MultiNet CyberShield AI operates under a **Strict Privacy & Zero-Telemetry** pol
 If you encounter issues during testing, please submit a report:
 - **GitHub Issues:** Submit reports at `https://github.com/usingh312-dotcom/multinet-cybershield-ai/issues`.
 - **Diagnostic Export:** Run `net-merge-service.exe -action status` and collect logs from the Windows Event Viewer (`Application` log, Source: `MultiNetNetMerge`).
+

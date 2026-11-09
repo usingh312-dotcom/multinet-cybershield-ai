@@ -55,7 +55,7 @@ axum = "0.7"
 #   aws-lc-sys compiled C code.
 # - tower-http: request timeouts so transfers cannot hold a connection forever.
 reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json", "stream"] }
-axum-server = { version = "=0.7.1", default-features = false, features = ["tls-rustls-no-provider"] }
+axum-server = { version = "0.7.3", default-features = false, features = ["tls-rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 rcgen = "0.13"
 tower-http = { version = "0.6", features = ["timeout"] }

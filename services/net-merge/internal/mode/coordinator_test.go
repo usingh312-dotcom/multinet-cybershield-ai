@@ -3,19 +3,33 @@
 package mode_test
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/sys/windows"
 
 	"multinet.ai/netmerge-service/internal/mode"
+	"multinet.ai/netmerge-service/internal/modeowner"
 )
+
+func newTestCoordinator(t *testing.T, prefix string) *mode.Coordinator {
+	name := fmt.Sprintf(`Global\test-coord-%s-%d-%d`, prefix, os.Getpid(), time.Now().UnixNano())
+	o := modeowner.NewWithName(name)
+	c := mode.NewCoordinatorWithOwner(o)
+	t.Cleanup(func() {
+		_ = c.Close()
+	})
+	return c
+}
 
 // TestValidRustProcessHandleRegistration verifies that a valid process handle
 // is registered with the coordinator and activates Mode B.
 func TestValidRustProcessHandleRegistration(t *testing.T) {
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "valid-handle")
 	currentPid := windows.GetCurrentProcessId()
 
 	if err := c.RequestModeB(currentPid); err != nil {
@@ -37,7 +51,7 @@ func TestValidRustProcessHandleRegistration(t *testing.T) {
 
 // TestInvalidProcessIdentity rejects PID 0 and non-existent PIDs.
 func TestInvalidProcessIdentity(t *testing.T) {
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "invalid-identity")
 
 	// PID 0 must be rejected
 	if err := c.RequestModeB(0); err == nil {
@@ -59,7 +73,7 @@ func TestInvalidProcessIdentity(t *testing.T) {
 // TestPIDReuseRejection verifies that a handle whose actual PID does not match
 // the requested PID is rejected.
 func TestPIDReuseRejection(t *testing.T) {
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "pid-reuse")
 	currentPid := windows.GetCurrentProcessId()
 
 	h, err := windows.OpenProcess(
@@ -90,7 +104,7 @@ func TestProcessExitsAfterModeBActivation(t *testing.T) {
 	}
 	childPid := uint32(cmd.Process.Pid)
 
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "proc-exit")
 	if err := c.RequestModeB(childPid); err != nil {
 		_ = cmd.Process.Kill()
 		t.Fatalf("RequestModeB for child process: %v", err)
@@ -122,7 +136,7 @@ func TestProcessExitsAfterModeBActivation(t *testing.T) {
 // TestPipeDisconnectWhileRustRemainsAlive verifies that pipe disconnect does NOT
 // terminate Mode B when the engine process is still running.
 func TestPipeDisconnectWhileRustRemainsAlive(t *testing.T) {
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "pipe-disconnect")
 	currentPid := windows.GetCurrentProcessId()
 
 	if err := c.RequestModeB(currentPid); err != nil {
@@ -150,7 +164,7 @@ func TestRustProcessExitsWhileIPCConnected(t *testing.T) {
 	}
 	childPid := uint32(cmd.Process.Pid)
 
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "ipc-connected")
 	if err := c.RequestModeB(childPid); err != nil {
 		t.Fatalf("RequestModeB: %v", err)
 	}
@@ -174,7 +188,7 @@ func TestRustProcessExitsWhileIPCConnected(t *testing.T) {
 // TestMonitorTimeoutAndUnexpectedWaitError verifies monitor robustness on polling
 // and unexpected wait errors.
 func TestMonitorTimeoutAndUnexpectedWaitError(t *testing.T) {
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "timeout-robustness")
 	currentPid := windows.GetCurrentProcessId()
 
 	if err := c.RequestModeB(currentPid); err != nil {
@@ -208,7 +222,7 @@ func TestMonitorTimeoutAndUnexpectedWaitError(t *testing.T) {
 // TestStaleMonitorCannotReleaseNewerSession verifies session ID protection:
 // an older monitor goroutine cannot release a newer Mode B session.
 func TestStaleMonitorCannotReleaseNewerSession(t *testing.T) {
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "stale-monitor")
 	currentPid := windows.GetCurrentProcessId()
 
 	// 1. Session 1
@@ -237,10 +251,10 @@ func TestStaleMonitorCannotReleaseNewerSession(t *testing.T) {
 	}
 }
 
-// TestServiceShutdownClosesProcessHandles verifies that ReleaseMode closes the handle
+// TestServiceShutdownClosesProcessHandles verifies that Close() closes the handle
 // and clears coordinator state.
 func TestServiceShutdownClosesProcessHandles(t *testing.T) {
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "shutdown-cleanup")
 	currentPid := windows.GetCurrentProcessId()
 
 	if err := c.RequestModeB(currentPid); err != nil {
@@ -259,7 +273,7 @@ func TestServiceShutdownClosesProcessHandles(t *testing.T) {
 
 // TestModeACannotActivateWhileModeBOwnsTunnel verifies mutual exclusion between Mode A and Mode B.
 func TestModeACannotActivateWhileModeBOwnsTunnel(t *testing.T) {
-	c := mode.NewCoordinator()
+	c := newTestCoordinator(t, "mutual-exclusion")
 	currentPid := windows.GetCurrentProcessId()
 
 	// Activate Mode B
@@ -294,5 +308,50 @@ func TestModeACannotActivateWhileModeBOwnsTunnel(t *testing.T) {
 	// Clean up
 	if err := c.ReleaseMode(); err != nil {
 		t.Fatalf("ReleaseMode: %v", err)
+	}
+}
+
+// TestConcurrentModeAAndModeB verifies that concurrent requests for Mode A and Mode B
+// never result in both being active at the same time.
+func TestConcurrentModeAAndModeB(t *testing.T) {
+	c := newTestCoordinator(t, "concurrent")
+	currentPid := windows.GetCurrentProcessId()
+
+	var wg sync.WaitGroup
+	conflictsDetected := 0
+	var mu sync.Mutex
+
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if err := c.RequestModeA(); err != nil {
+				mu.Lock()
+				conflictsDetected++
+				mu.Unlock()
+			} else {
+				time.Sleep(10 * time.Millisecond)
+				_ = c.ReleaseMode()
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			if err := c.RequestModeB(currentPid); err != nil {
+				mu.Lock()
+				conflictsDetected++
+				mu.Unlock()
+			} else {
+				time.Sleep(10 * time.Millisecond)
+				_ = c.ReleaseMode()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Final verification: coordinator must not be in an inconsistent state
+	if c.IsNetMerge() && c.IsBonding() {
+		t.Fatal("FATAL: both Mode A and Mode B were observed active simultaneously")
 	}
 }

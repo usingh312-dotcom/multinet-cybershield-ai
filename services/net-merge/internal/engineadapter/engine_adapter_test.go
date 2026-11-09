@@ -4,14 +4,28 @@ package engineadapter_test
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 
 	"multinet.ai/netmerge-service/internal/engineadapter"
 	"multinet.ai/netmerge-service/internal/ipc"
 	"multinet.ai/netmerge-service/internal/mode"
+	"multinet.ai/netmerge-service/internal/modeowner"
 )
+
+func newTestCoordinator(t *testing.T, prefix string) *mode.Coordinator {
+	name := fmt.Sprintf(`Global\test-eng-coord-%s-%d-%d`, prefix, os.Getpid(), time.Now().UnixNano())
+	o := modeowner.NewWithName(name)
+	c := mode.NewCoordinatorWithOwner(o)
+	t.Cleanup(func() {
+		_ = c.Close()
+	})
+	return c
+}
 
 // mockEngine implements ipc.Engine for testing mode exclusivity without
 // touching Wintun or routes.
@@ -42,7 +56,7 @@ func (m *mockEngine) SetModeB(active bool, rustPid uint32, rustHandle windows.Ha
 }
 
 func TestModeExclusivityStartRejectsModeB(t *testing.T) {
-	coord := mode.NewCoordinator()
+	coord := newTestCoordinator(t, "start-rejects-mode-b")
 	currentPid := windows.GetCurrentProcessId()
 	if err := coord.RequestModeB(currentPid); err != nil {
 		t.Fatalf("RequestModeB: %v", err)
@@ -58,7 +72,7 @@ func TestModeExclusivityStartRejectsModeB(t *testing.T) {
 }
 
 func TestModeExclusivityActivations(t *testing.T) {
-	coord := mode.NewCoordinator()
+	coord := newTestCoordinator(t, "activations")
 	currentPid := windows.GetCurrentProcessId()
 	if err := coord.RequestModeA(); err != nil {
 		t.Fatalf("RequestModeA: %v", err)
@@ -79,7 +93,7 @@ func TestModeExclusivityActivations(t *testing.T) {
 }
 
 func TestSetBondingAndSetNetMerge(t *testing.T) {
-	coord := mode.NewCoordinator()
+	coord := newTestCoordinator(t, "set-bonding-and-net-merge")
 	currentPid := windows.GetCurrentProcessId()
 	if err := coord.RequestModeA(); err != nil {
 		t.Fatalf("RequestModeA: %v", err)

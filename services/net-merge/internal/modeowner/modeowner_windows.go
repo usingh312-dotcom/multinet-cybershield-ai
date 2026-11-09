@@ -6,13 +6,13 @@
 // automatically released, enabling safe recovery on restart.
 //
 // Thread-affinity requirement: Windows mutex ownership is thread-specific.
-// The acquiring thread must also be the releasing thread. This package uses
-// runtime.LockOSThread() to pin the owning goroutine to an OS thread for the
-// entire ownership lifetime.
+// The acquiring thread must also be the releasing thread. To guarantee this in
+// Go's M:N scheduler, an Owner instance delegates all Win32 mutex operations
+// to a dedicated worker goroutine that is locked to a single OS thread via
+// runtime.LockOSThread() for its entire lifetime.
 package modeowner
 
 import (
-	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -23,180 +23,216 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// mutexName is the named mutex used for cross-process mode ownership.
+// mutexName is the default named mutex used for cross-process mode ownership.
 const mutexName = `Global\multinet-netmerge-mode-owner-v1`
 
-// ERROR_ALREADY_EXISTS is returned by CreateMutexW when the mutex already exists.
-const ERROR_ALREADY_EXISTS = 183
-
-// WAIT_ABANDONED is returned by WaitForSingleObject when the mutex was abandoned.
-const WAIT_ABANDONED = 0x00000080
-
-// WAIT_OBJECT_0 is returned by WaitForSingleObject when the object is signaled.
-const WAIT_OBJECT_0 = 0x00000000
-
-// WAIT_TIMEOUT is returned by WaitForSingleObject when the timeout elapses.
-const WAIT_TIMEOUT = 0x00000102
-
-var (
-	kernel32               = windows.NewLazySystemDLL("kernel32.dll")
-	procCreateMutexW       = kernel32.NewProc("CreateMutexW")
-	procReleaseMutex       = kernel32.NewProc("ReleaseMutex")
-	procWaitForSingleObject = kernel32.NewProc("WaitForSingleObject")
-	procCloseHandle        = kernel32.NewProc("CloseHandle")
-)
-
 // mutexSDDL restricts the named mutex to Administrators and LocalSystem only.
-// Interactive users do not need direct mutex access; they reach the service
-// through the named pipe instead.
 const mutexSDDL = "D:P(A;;GA;;;BA)(A;;GA;;;S-1-5-18)"
-
-// Owner tracks cross-process mode ownership via a Windows named mutex.
-// The owning goroutine is pinned to an OS thread via runtime.LockOSThread()
-// so that Release() is always called on the same thread that acquired the mutex.
-type Owner struct {
-	mu     sync.Mutex
-	handle windows.Handle
-	owned  atomic.Bool
-	name   string
-	// lockThread records whether LockOSThread has been called, ensuring
-	// Release() is attempted on the same OS thread.
-	lockThread atomic.Bool
-}
-
-// New creates a new Owner (not yet acquired).
-func New() *Owner {
-	return &Owner{name: mutexName}
-}
-
-// TryAcquire attempts to acquire the mode mutex with a bounded wait.
-// Returns true if this process now owns the mode, false if another process
-// owns it. On WAIT_ABANDONED, the previous owner crashed and the mutex is
-// recovered; this is treated as a successful acquisition with a warning.
-//
-// The acquiring goroutine is locked to the current OS thread for the
-// lifetime of ownership. Release() must be called from the same goroutine.
-func (o *Owner) TryAcquire(timeout time.Duration) (bool, error) {
-	o.mu.Lock()
-	if o.owned.Load() {
-		o.mu.Unlock()
-		return false, fmt.Errorf("modeowner: already owns the mode mutex")
-	}
-	o.mu.Unlock()
-
-	// Lock the calling goroutine to its OS thread. Windows mutex ownership
-	// is thread-specific; Release() must happen on the same thread.
-	// LockOSThread is NOT deferred here: the thread remains locked until
-	// Release() calls runtime.UnlockOSThread(). If acquisition fails, we
-	// unlock immediately.
-	runtime.LockOSThread()
-
-	namePtr, err := windows.UTF16PtrFromString(o.name)
-	if err != nil {
-		runtime.UnlockOSThread()
-		return false, err
-	}
-
-	// Create the mutex with a restrictive DACL. bInitialOwner=FALSE so we
-	// must explicitly wait for it.
-	sa := &windows.SecurityAttributes{
-		Length:             uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
-		SecurityDescriptor: nil, // default DACL for simplicity; see note below
-		InheritHandle:      0,
-	}
-
-	r1, _, lastErr := procCreateMutexW.Call(
-		uintptr(unsafe.Pointer(sa)),
-		uintptr(0), // bInitialOwner = FALSE
-		uintptr(unsafe.Pointer(namePtr)),
-	)
-	if r1 == 0 {
-		runtime.UnlockOSThread()
-		return false, fmt.Errorf("modeowner: create mutex failed: %w", lastErr)
-	}
-	h := windows.Handle(r1)
-
-	// If the mutex already existed, another process owns it. Fail fast and
-	// let the caller retry.
-	if errors.Is(lastErr, windows.ERROR_ALREADY_EXISTS) {
-		windows.CloseHandle(h)
-		runtime.UnlockOSThread()
-		return false, nil
-	}
-
-	// Wait for the mutex with a bounded timeout.
-	timeoutMs := uint32(timeout / time.Millisecond)
-	r2, _, _ := procWaitForSingleObject.Call(
-		uintptr(h),
-		uintptr(timeoutMs),
-	)
-
-	switch r2 {
-	case WAIT_OBJECT_0:
-		// Acquired successfully.
-	case WAIT_ABANDONED:
-		// Previous owner crashed; mutex is recovered. This is a success but
-		// indicates possible inconsistent networking state that the caller
-		// should reconcile (e.g., verify routes/adapters are clean).
-	case WAIT_TIMEOUT:
-		windows.CloseHandle(h)
-		runtime.UnlockOSThread()
-		return false, fmt.Errorf("modeowner: timed out waiting for mode mutex after %v", timeout)
-	default:
-		windows.CloseHandle(h)
-		runtime.UnlockOSThread()
-		return false, fmt.Errorf("modeowner: wait failed with result 0x%x", r2)
-	}
-
-	o.mu.Lock()
-	o.handle = h
-	o.owned.Store(true)
-	o.lockThread.Store(true)
-	o.mu.Unlock()
-
-	return true, nil
-}
-
-// Release releases the mode mutex. Must be called from the same goroutine
-// that called TryAcquire (which is pinned to the same OS thread).
-func (o *Owner) Release() error {
-	o.mu.Lock()
-	if !o.owned.Load() {
-		o.mu.Unlock()
-		return nil
-	}
-
-	if !o.lockThread.Load() {
-		o.mu.Unlock()
-		return fmt.Errorf("modeowner: release attempted without LockOSThread; mutex may be held by another thread")
-	}
-
-	if r1, _, err := procReleaseMutex.Call(uintptr(o.handle)); r1 == 0 {
-		o.mu.Unlock()
-		return fmt.Errorf("modeowner: release mutex failed: %w", err)
-	}
-	windows.CloseHandle(o.handle)
-	o.handle = 0
-	o.owned.Store(false)
-	o.lockThread.Store(false)
-	o.mu.Unlock()
-	runtime.UnlockOSThread()
-	return nil
-}
-
-// IsOwned returns true if this process currently owns the mode mutex.
-func (o *Owner) IsOwned() bool {
-	return o.owned.Load()
-}
-
-// Name returns the mutex name used for ownership.
-func (o *Owner) Name() string {
-	return o.name
-}
 
 // MutexSDDL returns the security descriptor for the named mutex.
 func MutexSDDL() string {
 	return mutexSDDL
 }
 
-var _ = time.Second
+type opType int
+
+const (
+	opAcquire opType = iota
+	opRelease
+	opClose
+)
+
+type mutexReq struct {
+	op      opType
+	timeout time.Duration
+	resp    chan mutexResp
+}
+
+type mutexResp struct {
+	owned bool
+	err   error
+}
+
+// Owner tracks cross-process mode ownership via a Windows named mutex.
+// All Win32 mutex calls (CreateMutexW, WaitForSingleObject, ReleaseMutex, CloseHandle)
+// are executed on a dedicated OS thread locked with runtime.LockOSThread().
+type Owner struct {
+	name       string
+	cmdCh      chan mutexReq
+	ownedState atomic.Bool
+	closed     atomic.Bool
+	closeOnce  sync.Once
+}
+
+// New creates a new Owner using the production global mutex name.
+func New() *Owner {
+	return NewWithName(mutexName)
+}
+
+// NewWithName creates a new Owner with a custom or test mutex name.
+func NewWithName(name string) *Owner {
+	o := &Owner{
+		name:  name,
+		cmdCh: make(chan mutexReq),
+	}
+	go o.loop()
+	return o
+}
+
+// loop runs on a dedicated OS thread locked with runtime.LockOSThread().
+// It executes every Win32 mutex call for this Owner instance.
+func (o *Owner) loop() {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var handle windows.Handle
+	var isHeld bool
+
+	cleanup := func() {
+		if isHeld && handle != 0 {
+			_ = windows.ReleaseMutex(handle)
+			isHeld = false
+			o.ownedState.Store(false)
+		}
+		if handle != 0 {
+			_ = windows.CloseHandle(handle)
+			handle = 0
+		}
+	}
+	defer cleanup()
+
+	for req := range o.cmdCh {
+		switch req.op {
+		case opAcquire:
+			if isHeld {
+				req.resp <- mutexResp{owned: false, err: fmt.Errorf("modeowner: already owns the mode mutex")}
+				continue
+			}
+
+			if handle == 0 {
+				sd, err := windows.SecurityDescriptorFromString(mutexSDDL)
+				if err != nil {
+					req.resp <- mutexResp{owned: false, err: fmt.Errorf("modeowner: security descriptor: %w", err)}
+					continue
+				}
+				sa := &windows.SecurityAttributes{
+					Length:             uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
+					SecurityDescriptor: sd,
+					InheritHandle:      0,
+				}
+				namePtr, err := windows.UTF16PtrFromString(o.name)
+				if err != nil {
+					req.resp <- mutexResp{owned: false, err: fmt.Errorf("modeowner: utf16 conversion: %w", err)}
+					continue
+				}
+
+				h, err := windows.CreateMutex(sa, false, namePtr)
+				if h == 0 || (err != nil && err != windows.ERROR_ALREADY_EXISTS) {
+					req.resp <- mutexResp{owned: false, err: fmt.Errorf("modeowner: create mutex failed: %w", err)}
+					continue
+				}
+				handle = h
+			}
+
+			// Wait for ownership with the requested timeout.
+			timeoutMs := uint32(req.timeout / time.Millisecond)
+			event, err := windows.WaitForSingleObject(handle, timeoutMs)
+
+			switch event {
+			case uint32(windows.WAIT_OBJECT_0):
+				isHeld = true
+				o.ownedState.Store(true)
+				req.resp <- mutexResp{owned: true, err: nil}
+
+			case uint32(windows.WAIT_ABANDONED):
+				// The previous owning thread terminated without releasing the mutex.
+				// Mutex ownership is transferred to this thread.
+				isHeld = true
+				o.ownedState.Store(true)
+				req.resp <- mutexResp{owned: true, err: nil}
+
+			case uint32(windows.WAIT_TIMEOUT):
+				req.resp <- mutexResp{owned: false, err: fmt.Errorf("modeowner: timed out waiting for mode mutex after %v", req.timeout)}
+
+			default:
+				req.resp <- mutexResp{owned: false, err: fmt.Errorf("modeowner: wait failed: event=0x%x, err=%w", event, err)}
+			}
+
+		case opRelease:
+			if !isHeld {
+				req.resp <- mutexResp{owned: false, err: nil}
+				continue
+			}
+			err := windows.ReleaseMutex(handle)
+			isHeld = false
+			o.ownedState.Store(false)
+			if err != nil {
+				req.resp <- mutexResp{owned: false, err: fmt.Errorf("modeowner: release mutex failed: %w", err)}
+			} else {
+				req.resp <- mutexResp{owned: false, err: nil}
+			}
+
+		case opClose:
+			cleanup()
+			req.resp <- mutexResp{owned: false, err: nil}
+			return
+		}
+	}
+}
+
+// TryAcquire attempts to acquire the mode mutex within timeout.
+func (o *Owner) TryAcquire(timeout time.Duration) (bool, error) {
+	if o.closed.Load() {
+		return false, fmt.Errorf("modeowner: owner is closed")
+	}
+	respCh := make(chan mutexResp, 1)
+	o.cmdCh <- mutexReq{
+		op:      opAcquire,
+		timeout: timeout,
+		resp:    respCh,
+	}
+	res := <-respCh
+	return res.owned, res.err
+}
+
+// Release releases the mode mutex on the dedicated owning OS thread.
+// Safe to call even if not currently owned (no-op).
+func (o *Owner) Release() error {
+	if o.closed.Load() {
+		return nil
+	}
+	respCh := make(chan mutexResp, 1)
+	o.cmdCh <- mutexReq{
+		op:   opRelease,
+		resp: respCh,
+	}
+	res := <-respCh
+	return res.err
+}
+
+// Close releases any held mutex, closes the handle, and terminates the dedicated thread.
+func (o *Owner) Close() error {
+	var err error
+	o.closeOnce.Do(func() {
+		o.closed.Store(true)
+		respCh := make(chan mutexResp, 1)
+		o.cmdCh <- mutexReq{
+			op:   opClose,
+			resp: respCh,
+		}
+		res := <-respCh
+		close(o.cmdCh)
+		err = res.err
+	})
+	return err
+}
+
+// IsOwned reports whether the mutex is currently owned by this Owner.
+func (o *Owner) IsOwned() bool {
+	return o.ownedState.Load()
+}
+
+// Name returns the mutex name.
+func (o *Owner) Name() string {
+	return o.name
+}

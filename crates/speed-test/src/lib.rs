@@ -203,7 +203,7 @@ where
     F: FnMut(&SpeedTestProgress),
 {
     let base = validate(config)?;
-    progress(SpeedTestProgress::new(
+    progress(&SpeedTestProgress::new(
         SpeedTestStage::Preparing,
         0.0,
         "Opening a socket on the selected interface",
@@ -227,7 +227,7 @@ where
     cancelled(cancel)?;
 
     // --- Latency / jitter / loss -------------------------------------------
-    progress(SpeedTestProgress::new(
+    progress(&SpeedTestProgress::new(
         SpeedTestStage::Latency,
         0.05,
         "Sending latency probes",
@@ -266,7 +266,7 @@ where
             Err(_) => failures += 1,
         }
         let fraction = 0.05 + 0.20 * ((sample + 1) as f64 / config.ping_samples as f64);
-        progress(SpeedTestProgress::new(
+        progress(&SpeedTestProgress::new(
             SpeedTestStage::Latency,
             fraction,
             format!("Probe {}/{}", sample + 1, config.ping_samples),
@@ -289,7 +289,7 @@ where
 
     // --- Download -----------------------------------------------------------
     cancelled(cancel)?;
-    progress(SpeedTestProgress::new(
+    progress(&SpeedTestProgress::new(
         SpeedTestStage::Download,
         0.28,
         "Downloading measurement payload",
@@ -348,7 +348,7 @@ where
 
     // --- Upload -------------------------------------------------------------
     cancelled(cancel)?;
-    progress(SpeedTestProgress::new(
+    progress(&SpeedTestProgress::new(
         SpeedTestStage::Upload,
         0.60,
         "Uploading measurement payload",
@@ -381,7 +381,7 @@ where
     }
     let upload_mbps = config.upload_bytes as f64 * 8.0 / upload_secs / 1_000_000.0;
 
-    progress(SpeedTestProgress::new(
+    progress(&SpeedTestProgress::new(
         SpeedTestStage::Finalizing,
         0.95,
         "Writing the verified result",

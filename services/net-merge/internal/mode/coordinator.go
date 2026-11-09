@@ -65,6 +65,13 @@ func NewCoordinator() *Coordinator {
 	}
 }
 
+// NewCoordinatorWithOwner creates a coordinator with an injected Owner (e.g. for isolated test mutexes).
+func NewCoordinatorWithOwner(owner *modeowner.Owner) *Coordinator {
+	return &Coordinator{
+		owner: owner,
+	}
+}
+
 // Current returns the active mode.
 func (c *Coordinator) Current() Mode {
 	c.mu.Lock()
@@ -259,7 +266,13 @@ func (c *Coordinator) ReleaseMode() error {
 
 // Close deactivates mode and closes all held handles.
 func (c *Coordinator) Close() error {
-	return c.ReleaseMode()
+	err := c.ReleaseMode()
+	if c.owner != nil {
+		if oErr := c.owner.Close(); oErr != nil && err == nil {
+			err = oErr
+		}
+	}
+	return err
 }
 
 // SetRustProcessHandle binds a validated process handle to the active Mode B

@@ -195,10 +195,6 @@ func verifyRustProcessIdentity(h windows.Handle, pid uint32) error {
 			return nil
 		}
 	}
-	// For testing environments (e.g. go test or cargo test binaries):
-	if strings.HasSuffix(exeName, ".test.exe") || strings.Contains(exePath, "go-build") || strings.Contains(exePath, "cargo") {
-		return nil
-	}
 
 	return fmt.Errorf("unauthorized process identity: %s (PID %d is not an approved bonding engine)", exeName, pid)
 }
@@ -312,7 +308,7 @@ func NewAuthorizer() *Authorizer {
 			string(MethodStart):       true,
 			string(MethodStop):        true,
 			string(MethodSetLimit):    true,
-			string(MethodSetModeB):    true,
+			string(MethodSetModeB):    false, // Unelevated Tauri controller is authorized; bonding engine PID & process image are strictly validated
 			string(MethodAdapters):    false,
 			string(MethodStatus):      false,
 			string(MethodHealth):      false,

@@ -105,12 +105,21 @@ func TestProcessIdentityValidation(t *testing.T) {
 	}
 	defer windows.CloseHandle(h)
 
-	// In test binary (.test.exe), verifyRustProcessIdentity should accept it
-	if err := verifyRustProcessIdentity(h, currentPid); err != nil {
-		t.Fatalf("verifyRustProcessIdentity failed for test process: %v", err)
+	// 1. In production (without validator hook), arbitrary/test binaries are rejected
+	SetProcessValidator(nil)
+	if err := verifyRustProcessIdentity(h, currentPid); err == nil {
+		t.Fatal("expected unapproved process binary to be rejected without custom validator")
 	}
 
-	// Custom validator rejects unauthorized process
+	// 2. Custom validator hook allows injecting verified identity
+	SetProcessValidator(func(handle windows.Handle, pid uint32) error {
+		return nil
+	})
+	if err := verifyRustProcessIdentity(h, currentPid); err != nil {
+		t.Fatalf("expected injected validator to succeed: %v", err)
+	}
+
+	// 3. Custom validator rejects unauthorized process
 	SetProcessValidator(func(handle windows.Handle, pid uint32) error {
 		return fmt.Errorf("mock unauthorized identity for testing")
 	})
@@ -131,14 +140,14 @@ func TestAuthorizerRequireAdminMethods(t *testing.T) {
 	auth := NewAuthorizer()
 
 	// Methods that require admin.
-	for _, m := range []string{string(MethodStart), string(MethodStop), string(MethodSetLimit), string(MethodSetModeB)} {
+	for _, m := range []string{string(MethodStart), string(MethodStop), string(MethodSetLimit)} {
 		if !auth.RequireAdmin[m] {
 			t.Fatalf("method %s should require admin", m)
 		}
 	}
 
-	// Methods that do not require admin.
-	for _, m := range []string{string(MethodAdapters), string(MethodStatus), string(MethodHealth), string(MethodModeBStatus)} {
+	// Methods that do not require admin (allowed for local interactive users).
+	for _, m := range []string{string(MethodAdapters), string(MethodStatus), string(MethodHealth), string(MethodModeBStatus), string(MethodSetModeB)} {
 		if auth.RequireAdmin[m] {
 			t.Fatalf("method %s should not require admin", m)
 		}
@@ -176,6 +185,9 @@ func TestAuthorizerUserAllowedForReadOnly(t *testing.T) {
 	if err := auth.Authorize(string(MethodAdapters), ci); err != nil {
 		t.Fatalf("standard user should be authorized for adapters: %v", err)
 	}
+	if err := auth.Authorize(string(MethodSetModeB), ci); err != nil {
+		t.Fatalf("standard user should be authorized for set_mode_b: %v", err)
+	}
 }
 
 func TestAuthorizerUserDeniedForAdminMethods(t *testing.T) {
@@ -189,9 +201,6 @@ func TestAuthorizerUserDeniedForAdminMethods(t *testing.T) {
 	}
 	if err := auth.Authorize(string(MethodSetLimit), ci); err == nil {
 		t.Fatal("standard user should NOT be authorized for set_limit")
-	}
-	if err := auth.Authorize(string(MethodSetModeB), ci); err == nil {
-		t.Fatal("standard user should NOT be authorized for set_mode_b")
 	}
 }
 

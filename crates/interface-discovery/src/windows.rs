@@ -199,15 +199,23 @@ fn mac_string(bytes: &[u8; 8], length: u32) -> Option<String> {
     )
 }
 
+const IF_OPER_STATUS_UP: i32 = IfOperStatusUp;
+const IF_OPER_STATUS_DOWN: i32 = IfOperStatusDown;
+const IF_OPER_STATUS_TESTING: i32 = IfOperStatusTesting;
+const IF_OPER_STATUS_UNKNOWN: i32 = IfOperStatusUnknown;
+const IF_OPER_STATUS_DORMANT: i32 = IfOperStatusDormant;
+const IF_OPER_STATUS_NOT_PRESENT: i32 = IfOperStatusNotPresent;
+const IF_OPER_STATUS_LOWER_LAYER_DOWN: i32 = IfOperStatusLowerLayerDown;
+
 fn map_oper_status(status: i32) -> OperationalStatus {
     match status {
-        IfOperStatusUp => OperationalStatus::Up,
-        IfOperStatusDown => OperationalStatus::Down,
-        IfOperStatusTesting => OperationalStatus::Testing,
-        IfOperStatusUnknown => OperationalStatus::Unknown,
-        IfOperStatusDormant => OperationalStatus::Dormant,
-        IfOperStatusNotPresent => OperationalStatus::NotPresent,
-        IfOperStatusLowerLayerDown => OperationalStatus::LowerLayerDown,
+        IF_OPER_STATUS_UP => OperationalStatus::Up,
+        IF_OPER_STATUS_DOWN => OperationalStatus::Down,
+        IF_OPER_STATUS_TESTING => OperationalStatus::Testing,
+        IF_OPER_STATUS_UNKNOWN => OperationalStatus::Unknown,
+        IF_OPER_STATUS_DORMANT => OperationalStatus::Dormant,
+        IF_OPER_STATUS_NOT_PRESENT => OperationalStatus::NotPresent,
+        IF_OPER_STATUS_LOWER_LAYER_DOWN => OperationalStatus::LowerLayerDown,
         _ => OperationalStatus::Unknown,
     }
 }

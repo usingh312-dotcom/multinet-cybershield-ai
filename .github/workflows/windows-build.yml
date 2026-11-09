@@ -59,7 +59,9 @@ jobs:
         run: |
           go build -o net-merge-service.exe .
           if (Test-Path net-merge-service.exe) {
-            Write-Host "Go service binary produced successfully."
+            $hash = (Get-FileHash net-merge-service.exe -Algorithm SHA256).Hash
+            Write-Host "Go service binary produced successfully: net-merge-service.exe"
+            Write-Host "SHA256: $hash"
           } else {
             Write-Error "Go build did not produce net-merge-service.exe"
             exit 1

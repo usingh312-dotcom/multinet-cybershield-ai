@@ -128,16 +128,22 @@ func (s *Server) Run(ctx context.Context) error {
 	for {
 		// Block until a client connects to this pipe instance.
 		if err := windows.ConnectNamedPipe(pipe, nil); err != nil {
-			if ctx.Err() != nil {
+			if s.isClosed() || ctx.Err() != nil {
 				return nil
 			}
 			// ERROR_PIPE_CONNECTED (535) means a client connected before
 			// ConnectNamedPipe was called; treat as connected.
 			if err != windows.ERROR_PIPE_CONNECTED {
+				if s.isClosed() || ctx.Err() != nil {
+					return nil
+				}
 				log.Printf("ipc: connect named pipe error: %v", err)
 				// Create a fresh pipe instance and retry.
 				pipe, err = securePipe(s.pipeName)
 				if err != nil {
+					if s.isClosed() || ctx.Err() != nil {
+						return nil
+					}
 					return fmt.Errorf("recreate named pipe: %w", err)
 				}
 				s.mu.Lock()
@@ -196,6 +202,12 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+func (s *Server) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
 // Close shuts down the listening pipe instance.
 func (s *Server) Close() error {
 	s.mu.Lock()
@@ -204,9 +216,10 @@ func (s *Server) Close() error {
 		return nil
 	}
 	s.closed = true
-	if s.pipe != 0 {
-		windows.DisconnectNamedPipe(s.pipe)
-		windows.CloseHandle(s.pipe)
+	if s.pipe != 0 && s.pipe != windows.InvalidHandle {
+		_ = windows.CancelIoEx(s.pipe, nil)
+		_ = windows.DisconnectNamedPipe(s.pipe)
+		_ = windows.CloseHandle(s.pipe)
 		s.pipe = 0
 	}
 	return nil

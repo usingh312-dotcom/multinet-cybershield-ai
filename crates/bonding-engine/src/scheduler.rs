@@ -468,4 +468,54 @@ mod tests {
             assert!(st.deficit.is_finite(), "deficit must remain finite: {:?}", st.deficit);
         }
     }
+
+    #[test]
+    fn fault_injection_adapter_disconnect_and_failover() {
+        let mut sched = WeightedPacketScheduler::new();
+        sched.add_path("eth0".into(), 1500);
+        sched.add_path("wlan0".into(), 1500);
+        sched.update_metrics(&stats("eth0", 100_000_000.0, 0.0, 5.0, 1500));
+        sched.update_metrics(&stats("wlan0", 50_000_000.0, 0.0, 10.0, 1500));
+
+        let mut eth_count = 0;
+        let mut wlan_count = 0;
+        for _ in 0..100 {
+            if let Some(sp) = sched.schedule(500) {
+                if sp.path_id == "eth0" {
+                    eth_count += 1;
+                } else if sp.path_id == "wlan0" {
+                    wlan_count += 1;
+                }
+            }
+        }
+        assert!(eth_count > 0 && wlan_count > 0);
+
+        // Fault: eth0 disconnects abruptly
+        assert!(sched.remove_path("eth0"));
+        assert_eq!(sched.eligible_count(), 1);
+
+        // Traffic seamlessly shifts 100% to wlan0
+        for _ in 0..100 {
+            let sp = sched.schedule(500).expect("wlan0 must remain schedulable");
+            assert_eq!(sp.path_id, "wlan0");
+        }
+    }
+
+    #[test]
+    fn scheduler_repeated_churn_stability() {
+        let mut sched = WeightedPacketScheduler::new();
+        sched.add_path("stable".into(), 1500);
+        sched.update_metrics(&stats("stable", 50_000_000.0, 0.0, 5.0, 1500));
+
+        // 100 cycles of flapping a secondary interface while scheduling
+        for cycle in 0..100 {
+            let name = format!("flapping_{cycle}");
+            sched.add_path(name.clone(), 1500);
+            sched.update_metrics(&stats(&name, 30_000_000.0, 0.0, 15.0, 1500));
+            assert!(sched.schedule(800).is_some());
+            assert!(sched.remove_path(&name));
+            assert!(sched.schedule(800).is_some());
+        }
+        assert_eq!(sched.eligible_count(), 1);
+    }
 }

@@ -90,7 +90,11 @@ func securePipe(pipeName string) (windows.Handle, error) {
 		InheritHandle:      0,
 	}
 
-	name, err := windows.UTF16PtrFromString(`\\.\pipe\` + pipeName)
+	pName := pipeName
+	if !strings.HasPrefix(pName, `\\.\pipe\`) {
+		pName = `\\.\pipe\` + pName
+	}
+	name, err := windows.UTF16PtrFromString(pName)
 	if err != nil {
 		return 0, err
 	}

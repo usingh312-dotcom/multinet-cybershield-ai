@@ -51,6 +51,7 @@ pub enum NetworkMode {
 
 /// Handle to a connected Net Merge service. Cloning the handle shares the
 /// underlying pipe connection and mode state.
+#[derive(Clone)]
 pub struct NetMergeClient {
     inner: Arc<NetMergeClientInner>,
 }
@@ -357,5 +358,37 @@ mod tests {
         client.set_mode(NetworkMode::ModeANetMerge).unwrap();
         client.set_mode_b(true).unwrap_err(); // local tracking still allows, but IPC would fail
         assert_eq!(client.mode(), NetworkMode::ModeBBonding);
+    }
+
+    #[test]
+    fn concurrent_mode_tracking_thread_safety() {
+        let client = NetMergeClient::new(r"\\.\pipe\test-nonexistent");
+        let mut handles = Vec::new();
+        for i in 0..10 {
+            let c = client.clone();
+            handles.push(std::thread::spawn(move || {
+                for _ in 0..50 {
+                    let m = if i % 2 == 0 {
+                        NetworkMode::ModeANetMerge
+                    } else {
+                        NetworkMode::None
+                    };
+                    let _ = c.set_mode(m);
+                    let _ = c.mode();
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn client_clone_shares_mode_state() {
+        let client1 = NetMergeClient::new(r"\\.\pipe\test-shared");
+        let client2 = client1.clone();
+        assert_eq!(client2.mode(), NetworkMode::None);
+        client1.set_mode(NetworkMode::ModeANetMerge).unwrap();
+        assert_eq!(client2.mode(), NetworkMode::ModeANetMerge);
     }
 }

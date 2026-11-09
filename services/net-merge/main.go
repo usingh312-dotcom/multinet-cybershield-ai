@@ -1,7 +1,14 @@
 // main is the entry point for the Net Merge service executable
-// (net-merge-service.exe). It is an independent, elevated Go process that owns
+// (net-merge-service.exe). It is an elevated Go process that owns
 // the Wintun adapter and capture routes (Mode A). MultiNet (Tauri, unelevated)
 // controls it exclusively over the versioned named-pipe IPC.
+//
+// Dual-mode execution:
+//   - When invoked by the Windows Service Control Manager (services.exe), it
+//     automatically registers via svc.Run as Windows Service "MultiNetNetMerge".
+//   - When invoked interactively or with -console, it runs in the current console.
+//   - When invoked with -action (install/uninstall/start/stop/status), it manages
+//     the service configuration in the Windows SCM.
 //
 // Cross-process mode ownership: a Windows named mutex
 // (Global\multinet-netmerge-mode-owner-v1) ensures only one process owns the
@@ -18,15 +25,18 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
+
+	"golang.org/x/sys/windows/svc"
 
 	"multinet.ai/netmerge-service/internal/engineadapter"
 	"multinet.ai/netmerge-service/internal/ipc"
 	"multinet.ai/netmerge-service/internal/mode"
+	"multinet.ai/netmerge-service/internal/svcrunner"
 )
 
 var (
@@ -36,24 +46,67 @@ var (
 	mtu        = flag.Uint("mtu", 9000, "TUN MTU")
 	ipv6       = flag.String("ipv6", "auto", "IPv6 mode: auto/on/off")
 	acquireSec = flag.Uint("acquire-timeout", 5, "seconds to wait for mode mutex before failing")
+	console    = flag.Bool("console", false, "run interactively in console instead of Windows Service")
+	action     = flag.String("action", "", "service action: install, uninstall, start, stop, status")
 )
 
 func main() {
 	flag.Parse()
 
 	if *logFile != "" {
-		f, err := os.OpenFile(*logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		f, err := os.OpenFile(*logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err == nil {
 			log.SetOutput(f)
 		}
 	}
 
-	log.Println("net-merge service starting")
+	// Handle SCM management actions
+	if *action != "" {
+		var err error
+		switch *action {
+		case "install":
+			err = svcrunner.Install()
+		case "uninstall":
+			err = svcrunner.Uninstall()
+		case "start":
+			err = svcrunner.Start()
+		case "stop":
+			err = svcrunner.Stop()
+		case "status":
+			var s string
+			s, err = svcrunner.Status()
+			if err == nil {
+				fmt.Printf("Service %s status: %s\n", svcrunner.ServiceName, s)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown action: %s (supported: install, uninstall, start, stop, status)\n", *action)
+			os.Exit(1)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Action %s failed: %v\n", *action, err)
+			os.Exit(1)
+		}
+		return
+	}
 
-	// The Coordinator is the authoritative Mode A / Mode B coordinator. It owns
-	// the kernel named mutex for the entire lifetime of the active mode.
+	// Detect whether running under Windows Service Control Manager
+	isService, err := svc.IsWindowsService()
+	if err == nil && isService && !*console {
+		if err := svcrunner.RunService(*pipeName, false); err != nil {
+			log.Fatalf("service execution failed: %v", err)
+		}
+		return
+	}
+
+	// Interactive / Console mode
+	log.Println("net-merge service starting (console mode)")
+
+	// Run disaster recovery scan on startup
+	if err := svcrunner.RunDisasterRecovery(); err != nil {
+		log.Printf("disaster recovery note: %v", err)
+	}
+
 	coord := mode.NewCoordinator()
-
 	eng := engineadapter.New(coord)
 	server := ipc.NewServer(*pipeName, eng)
 	server.RegisterHandlers()
@@ -75,24 +128,6 @@ func main() {
 	if err := eng.Stop(); err != nil {
 		log.Printf("engine shutdown warning: %v", err)
 	}
+	_ = coord.Close()
 	log.Println("net-merge service stopped")
-}
-
-// tryAcquireWithTimeout attempts to acquire the mode mutex, retrying every
-// 200ms until timeout. Returns true if acquired.
-//
-// Deprecated: mode acquisition is now handled inside engineadapter.Start()
-// via coord.RequestModeA(). This helper is retained for callers that need
-// to pre-acquire the mutex before starting the server.
-func tryAcquireWithTimeout(coord *mode.Coordinator, timeout time.Duration) (bool, error) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err := coord.RequestModeA(); err != nil {
-			// Mode B is active or mutex is held; retry.
-			time.Sleep(200 * time.Millisecond)
-			continue
-		}
-		return true, nil
-	}
-	return false, nil
 }

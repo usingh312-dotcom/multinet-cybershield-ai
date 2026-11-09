@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MultiNet CyberShield AI - WiX v4/v5 Installer Definition -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="MultiNet CyberShield AI"
+           Manufacturer="MultiNet AI Technologies"
+           Version="0.1.0"
+           UpgradeCode="{4E8D7F91-C8A2-4D3B-98F1-2B8C67D3A109}"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <SummaryInformation Description="MultiNet CyberShield AI - Intelligent Multi-Link Network Protection and Bonding"
+                        Manufacturer="MultiNet AI Technologies" />
+
+    <!-- MajorUpgrade: Ensures seamless in-place updates and prevents accidental downgrades -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of MultiNet CyberShield AI is already installed."
+                  AllowSameVersionUpgrades="yes" />
+
+    <!-- Embedded Cabinet file for single-file MSI distribution -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Application Icon -->
+    <Icon Id="AppIcon" SourceFile="resources/icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPHELPLINK" Value="https://multinet.ai/support" />
+    <Property Id="ARPURLINFOABOUT" Value="https://multinet.ai" />
+
+    <!-- Directory Structure -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="MultiNet CyberShield AI">
+        <Directory Id="DriversFolder" Name="drivers" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="MultiNet CyberShield AI" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="MultiNetCommonDataFolder" Name="MultiNetCyberShield" />
+    </StandardDirectory>
+
+    <!-- Component Group -->
+    <ComponentGroup Id="ProductComponents">
+
+      <!-- 1. Windows Background Service Component -->
+      <Component Id="ServiceComponent" Directory="INSTALLFOLDER" Bitness="always64" Guid="{9C2B81F4-7A1E-4E6F-8A9C-3E5F7A1B2C3D}">
+        <File Id="NetMergeServiceExe"
+              Source="$(var.SourceDir)/net-merge-service.exe"
+              KeyPath="yes" />
+
+        <!-- SCM Service Registration -->
+        <ServiceInstall Id="ServiceInstaller"
+                        Type="ownProcess"
+                        Vital="yes"
+                        Name="MultiNetNetMerge"
+                        DisplayName="MultiNet Net-Merge Service"
+                        Description="Manages virtual network adapter bonding, tunnel exclusivity, and packet routing for MultiNet CyberShield AI."
+                        Start="auto"
+                        Account="LocalSystem"
+                        ErrorControl="normal" />
+
+        <!-- SCM Control: Start on install, Stop on both, Remove on uninstall -->
+        <ServiceControl Id="ServiceController"
+                        Name="MultiNetNetMerge"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+      </Component>
+
+      <!-- 2. Wintun Driver DLL Component -->
+      <Component Id="WintunDriverComponent" Directory="INSTALLFOLDER" Bitness="always64" Guid="{1E3F5A7B-9C2D-4E6F-8A0B-2C4E6F8A0B2C}">
+        <File Id="WintunDll"
+              Source="$(var.SourceDir)/wintun.dll"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- 3. Desktop Application GUI & Shortcuts Component -->
+      <Component Id="DesktopAppComponent" Directory="INSTALLFOLDER" Bitness="always64" Guid="{5A7B9C2D-4E6F-8A0B-2C4E-6F8A0B2C4E6F}">
+        <File Id="DesktopAppExe"
+              Source="$(var.SourceDir)/multinet-cybershield-ai.exe"
+              KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut"
+                    Directory="ApplicationProgramsFolder"
+                    Name="MultiNet CyberShield AI"
+                    Description="Launch MultiNet CyberShield AI Security &amp; Bonding Dashboard"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="AppIcon"
+                    Advertise="yes" />
+          <Shortcut Id="DesktopShortcut"
+                    Directory="DesktopFolder"
+                    Name="MultiNet CyberShield AI"
+                    Description="Launch MultiNet CyberShield AI Security &amp; Bonding Dashboard"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="AppIcon"
+                    Advertise="yes" />
+        </File>
+      </Component>
+
+      <!-- 4. Start Menu Folder Cleanup -->
+      <Component Id="ApplicationShortcutComponent" Directory="ApplicationProgramsFolder" Guid="{8A0B2C4E-6F8A-0B2C-4E6F-8A0B2C4E6F8A}">
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\MultiNet\CyberShieldAI"
+                       Name="Installed"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+
+      <!-- 5. Common Application Data Directory Component -->
+      <Component Id="CommonDataComponent" Directory="MultiNetCommonDataFolder" Guid="{2C4E6F8A-0B2C-4E6F-8A0B-2C4E6F8A0B2C}">
+        <CreateFolder />
+        <!-- Preserved on upgrade; optional cleanup on uninstall -->
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- Feature Definition -->
+    <Feature Id="ProductFeature" Title="MultiNet CyberShield AI Core" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+  </Package>
+</Wix>

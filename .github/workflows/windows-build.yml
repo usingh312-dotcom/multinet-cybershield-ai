@@ -109,3 +109,49 @@ jobs:
         shell: pwsh
         run: |
           cargo test --workspace
+
+  release-engineering:
+    name: Windows Packaging & Release Engineering
+    needs: [go-build-and-test, rust-build-and-test]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Go binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: net-merge-service
+          path: services/net-merge
+
+      - name: Install WiX Toolset v5
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          wix --version
+
+      - name: Build Windows Installer (MSI)
+        shell: pwsh
+        run: |
+          .\packaging\build-installer.ps1
+
+      - name: Generate Software Bill of Materials (SBOM)
+        shell: pwsh
+        run: |
+          .\packaging\sbom\generate-sbom.ps1
+
+      - name: Verify Code Signatures & Integrity
+        shell: pwsh
+        run: |
+          .\packaging\signing\verify-signatures.ps1
+
+      - name: Upload Release Package Artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package-nm06-4
+          path: |
+            packaging/output/*
+            packaging/staging/*
+          retention-days: 7
+

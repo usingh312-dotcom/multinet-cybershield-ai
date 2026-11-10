@@ -189,9 +189,15 @@ if ($desktopExe) {
         $dbFound = $false
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         
-        while ($sw.ElapsedMilliseconds -lt 12000) {
+        while ($sw.ElapsedMilliseconds -lt 15000) {
             if ((Test-Path $dbPath) -and ((Get-Item $dbPath).Length -gt 0)) {
                 $dbFound = $true
+                break
+            }
+            if ($proc.HasExited) {
+                if ((Test-Path $dbPath) -and ((Get-Item $dbPath).Length -gt 0)) {
+                    $dbFound = $true
+                }
                 break
             }
             Start-Sleep -Milliseconds 500

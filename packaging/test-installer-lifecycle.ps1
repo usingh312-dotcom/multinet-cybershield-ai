@@ -300,24 +300,31 @@ Assert-Step "Windows Service runtime state is Running" {
 }
 
 Assert-Step "Service named-pipe IPC responds to health query (\\.\pipe\multinet-netmerge-v1)" {
-    $pipeClient = New-Object System.IO.Pipes.NamedPipeClientStream(".", "multinet-netmerge-v1", [System.IO.Pipes.PipeDirection]::InOut)
-    try {
-        $pipeClient.Connect(5000)
-        if (-not $pipeClient.IsConnected) { return "Pipe failed to connect within 5000ms" }
-        
-        $writer = New-Object System.IO.StreamWriter($pipeClient)
-        $writer.AutoFlush = $true
-        $reader = New-Object System.IO.StreamReader($pipeClient)
-        
-        $req = '{"id":"lifecycle-health-chk","pipe_version":1,"method":"health"}'
-        $writer.WriteLine($req)
-        
-        $response = $reader.ReadLine()
-        Write-Host " (IPC Response: $response) " -NoNewline
-        ($response -match '"pipe_version"\s*:\s*1') -and ($response -match '"ok"\s*:\s*true')
-    } finally {
-        $pipeClient.Dispose()
+    $connected = $false
+    $response = $null
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            $pipeClient = New-Object System.IO.Pipes.NamedPipeClientStream(".", "multinet-netmerge-v1", [System.IO.Pipes.PipeDirection]::InOut)
+            $pipeClient.Connect(2000)
+            if ($pipeClient.IsConnected) {
+                $writer = New-Object System.IO.StreamWriter($pipeClient)
+                $writer.AutoFlush = $true
+                $reader = New-Object System.IO.StreamReader($pipeClient)
+                
+                $req = '{"id":"lifecycle-health-chk","pipe_version":1,"method":"health"}'
+                $writer.WriteLine($req)
+                $response = $reader.ReadLine()
+                $connected = $true
+                $pipeClient.Dispose()
+                break
+            }
+        } catch {
+            Start-Sleep -Milliseconds 1000
+        }
     }
+    if (-not $connected) { return "Could not connect to named pipe \\.\pipe\multinet-netmerge-v1 after retries" }
+    Write-Host " (IPC Response: $response) " -NoNewline
+    ($response -match '"pipe_version"\s*:\s*1') -and ($response -match '"ok"\s*:\s*true')
 }
 
 # -----------------------------------------------------------------------------

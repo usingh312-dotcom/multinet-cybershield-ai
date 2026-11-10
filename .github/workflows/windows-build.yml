@@ -251,6 +251,25 @@ jobs:
           name: release-package-nm07-0-1
           path: .
 
+      - name: Download Go Service binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: net-merge-service
+          path: services/net-merge
+
+      - name: Download Desktop Application binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-app
+          path: target/release
+
+      - name: Stage binaries for qualification
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path packaging/staging | Out-Null
+          Copy-Item services/net-merge/net-merge-service.exe packaging/staging/net-merge-service.exe -Force
+          Copy-Item target/release/multinet-cybershield-ai.exe packaging/staging/multinet-cybershield-ai.exe -Force
+
       - name: Run Desktop Runtime Qualification Test
         shell: pwsh
         run: |

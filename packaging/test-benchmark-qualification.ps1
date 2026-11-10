@@ -41,10 +41,11 @@ New-Item -ItemType Directory -Force -Path $runArtifactsDir | Out-Null
 
 # 2. Run deterministic synthetic benchmark via netbench-cli
 Write-Host "`n[Step 1] Running deterministic synthetic benchmark via netbench-cli..." -ForegroundColor Yellow
-$proc = Start-Process -FilePath "cargo" -ArgumentList "run -p netbench-cli -- run --profile synthetic-3wan --seed 42 --output $runArtifactsDir" -NoNewWindow -PassThru -Wait
+cargo run -p netbench-cli -- run --profile synthetic-3wan --seed 42 --output $runArtifactsDir
+$runExitCode = $LASTEXITCODE
 
-if ($proc.ExitCode -ne 0) {
-    Record-Test "CLI_RUN" "Execution of netbench-cli run" "FAIL" "Process exited with code $($proc.ExitCode)"
+if ($runExitCode -ne 0) {
+    Record-Test "CLI_RUN" "Execution of netbench-cli run" "FAIL" "Process exited with code $runExitCode"
     exit 1
 } else {
     Record-Test "CLI_RUN" "Execution of netbench-cli run" "PASS" "Command completed with exit code 0"
@@ -121,9 +122,10 @@ Write-Host "`n[Step 2] Testing competitor import..." -ForegroundColor Yellow
 $compOutDir = Join-Path $OutputDir "competitor"
 $fixturePath = "tests/fixtures/speedify-sample.csv"
 
-$compProc = Start-Process -FilePath "cargo" -ArgumentList "run -p netbench-cli -- competitor-import --input $fixturePath --output $compOutDir" -NoNewWindow -PassThru -Wait
+cargo run -p netbench-cli -- competitor-import --input $fixturePath --output $compOutDir
+$compExitCode = $LASTEXITCODE
 
-if ($compProc.ExitCode -eq 0) {
+if ($compExitCode -eq 0) {
     $imported = Get-ChildItem -Filter "*.json" $compOutDir
     if ($imported.Count -gt 0) {
         Record-Test "COMPETITOR_IMPORT" "Import competitor CSV fixture" "PASS" "Imported $($imported.Count) record(s)"
@@ -131,7 +133,7 @@ if ($compProc.ExitCode -eq 0) {
         Record-Test "COMPETITOR_IMPORT" "Import competitor CSV fixture" "FAIL" "No JSON records created in $compOutDir"
     }
 } else {
-    Record-Test "COMPETITOR_IMPORT" "Import competitor CSV fixture" "FAIL" "Process exited with $($compProc.ExitCode)"
+    Record-Test "COMPETITOR_IMPORT" "Import competitor CSV fixture" "FAIL" "Process exited with $compExitCode"
 }
 
 # 7. Test Comparability Evaluation Gate
@@ -139,9 +141,10 @@ Write-Host "`n[Step 3] Testing comparability evaluation gate..." -ForegroundColo
 $compJsonFile = Join-Path $compOutDir "speedify-001.json"
 $comparisonsDir = Join-Path $OutputDir "comparisons"
 
-$compareProc = Start-Process -FilePath "cargo" -ArgumentList "run -p netbench-cli -- compare --multi-net $targetRunDir --competitor $compJsonFile --output $comparisonsDir" -NoNewWindow -PassThru -Wait
+cargo run -p netbench-cli -- compare --multi-net $targetRunDir --competitor $compJsonFile --output $comparisonsDir
+$compareExitCode = $LASTEXITCODE
 
-if ($compareProc.ExitCode -eq 0) {
+if ($compareExitCode -eq 0) {
     $compReports = Get-ChildItem -Filter "*.json" $comparisonsDir
     if ($compReports.Count -gt 0) {
         $compReportJson = Get-Content $compReports[0].FullName -Raw | ConvertFrom-Json
@@ -155,7 +158,7 @@ if ($compareProc.ExitCode -eq 0) {
         Record-Test "COMPARABILITY_GATE" "Generate comparison report" "FAIL" "No comparison report found"
     }
 } else {
-    Record-Test "COMPARABILITY_GATE" "Generate comparison report" "FAIL" "Process exited with $($compareProc.ExitCode)"
+    Record-Test "COMPARABILITY_GATE" "Generate comparison report" "FAIL" "Process exited with $compareExitCode"
 }
 
 # 8. Summary & Exit Gate
@@ -192,3 +195,4 @@ if ($failCount -gt 0) {
 
 Write-Host "`nAll benchmark qualification criteria passed successfully." -ForegroundColor Green
 exit 0
+

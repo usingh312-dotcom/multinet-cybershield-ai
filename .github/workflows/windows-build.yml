@@ -172,6 +172,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
+      - name: Build netbench-cli
+        shell: pwsh
+        run: |
+          cargo build -p netbench-cli
+
       - name: Run Benchmark Lab Qualification Suite
         shell: pwsh
         run: |

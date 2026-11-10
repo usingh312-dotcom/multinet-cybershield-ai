@@ -2441,6 +2441,9 @@ name = "netbench-cli"
 version = "0.1.0"
 dependencies = [
  "benchmark-core",
+ "interface-discovery",
+ "network-core",
+ "reqwest",
  "serde",
  "serde_json",
  "speed-test",

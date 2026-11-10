@@ -1173,6 +1173,30 @@ mod tests {
     }
 
     #[test]
+    fn test_csv_parse_comments_and_blank_lines_handled() {
+        let csv = r#"
+# Leading comment 1
+# Leading comment 2
+
+record_id;product;version;date_utc;operator;os;os_version;hardware;wans;wan_baselines;mode;server;direction;protocol;duration_secs;samples
+# Comment right after header
+
+speedify-1;Speedify;14.2.0;2026-11-10T10:00:00Z;QA;windows;11;x86_64;eth0,wlan0;100.0,50.0;Speed;https://speedtest.example.com;download;TCP;60;120.5,124.2,122.8,125.1,123.9
+
+# Interspersed comment line
+   
+speedify-2;Speedify;14.2.0;2026-11-10T10:05:00Z;QA;windows;11;x86_64;eth0,wlan0;100.0,50.0;Speed;https://speedtest.example.com;download;TCP;60;130.0,131.0,129.5,130.5,132.0
+
+# Trailing comment
+"#;
+        let records = parse_competitor_csv(csv)
+            .expect("Should successfully parse CSV with comments and blank lines");
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].record_id, "speedify-1");
+        assert_eq!(records[1].record_id, "speedify-2");
+    }
+
+    #[test]
     fn test_csv_parse_canonical_16_fields() {
         let csv = r#"
 # Canonical CSV

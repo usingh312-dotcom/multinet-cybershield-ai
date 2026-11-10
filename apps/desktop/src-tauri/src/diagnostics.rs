@@ -772,10 +772,11 @@ pub fn get_speed_test_status(
         SpeedTestOutcome::Failed(message) => ("failed", None, Some(message.clone())),
         SpeedTestOutcome::Cancelled => ("cancelled", None, None),
     };
+    let progress = lock(&run.progress).clone();
     Ok(SpeedTestStatusDto {
         id,
         state: state_label.into(),
-        progress: lock(&run.progress).clone(),
+        progress,
         report,
         error,
     })

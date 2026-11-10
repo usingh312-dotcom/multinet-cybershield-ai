@@ -184,8 +184,8 @@ mod tests {
         let state = initialize_database(&data_dir).await.unwrap();
         let status = database_status(&state).await.unwrap();
 
-        assert_eq!(status.migrations_applied, 2);
-        assert_eq!(status.latest_version, Some(2));
+        assert_eq!(status.migrations_applied, 3);
+        assert_eq!(status.latest_version, Some(3));
         assert!(status.foreign_keys_enabled);
         assert!(state.db_file.ends_with(DB_FILE));
 
@@ -223,7 +223,7 @@ mod tests {
             .fetch_one(&state.pool)
             .await
             .unwrap();
-        assert_eq!(tables.try_get::<i64, _>("n").unwrap(), 17);
+        assert_eq!(tables.try_get::<i64, _>("n").unwrap(), 19);
 
         state.pool.close().await;
         let _ = std::fs::remove_dir_all(&data_dir);

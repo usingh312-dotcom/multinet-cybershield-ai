@@ -235,16 +235,19 @@ mod tests {
     #[test]
     fn out_of_order_higher_seq_is_accepted() {
         let mut layer = FramingLayer::new(test_key());
-        let high = layer.encapsulate(b"high".to_vec()).unwrap(); // seq 0
-        let low = layer.encapsulate(b"low".to_vec()).unwrap();   // seq 1
-        // Re-decapsulating seq 0 (lower than last accepted 1) must be rejected.
+        let low = layer.encapsulate(b"low".to_vec()).unwrap();   // seq 0
+        let high = layer.encapsulate(b"high".to_vec()).unwrap(); // seq 1
+        // Accept higher seq 1 first
+        let (seq, _) = layer.decapsulate(&high).unwrap();
+        assert_eq!(seq, 1);
+        // Decapsulating seq 0 (lower than last accepted 1) must be rejected as replay.
         assert!(matches!(
-            layer.decapsulate(&high),
+            layer.decapsulate(&low),
             Err(FramingError::ReplayDetected(0))
         ));
         // seq 1 is still the last accepted; re-decapsulating it is replay too.
         assert!(matches!(
-            layer.decapsulate(&low),
+            layer.decapsulate(&high),
             Err(FramingError::ReplayDetected(1))
         ));
     }

@@ -47,7 +47,7 @@ var (
 	ipv6       = flag.String("ipv6", "auto", "IPv6 mode: auto/on/off")
 	acquireSec = flag.Uint("acquire-timeout", 5, "seconds to wait for mode mutex before failing")
 	console    = flag.Bool("console", false, "run interactively in console instead of Windows Service")
-	action     = flag.String("action", "", "service action: install, uninstall, start, stop, status")
+	action     = flag.String("action", "", "service action: install, uninstall, start, stop, status, recover")
 )
 
 var versionFlag = flag.Bool("version", false, "display version and build information")
@@ -87,8 +87,13 @@ func main() {
 			if err == nil {
 				fmt.Printf("Service %s status: %s\n", svcrunner.ServiceName, s)
 			}
+		case "recover":
+			err = svcrunner.RunDisasterRecovery()
+			if err == nil {
+				fmt.Println("Disaster recovery completed successfully.")
+			}
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown action: %s (supported: install, uninstall, start, stop, status)\n", *action)
+			fmt.Fprintf(os.Stderr, "Unknown action: %s (supported: install, uninstall, start, stop, status, recover)\n", *action)
 			os.Exit(1)
 		}
 		if err != nil {

@@ -271,5 +271,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: installer-lifecycle-logs
-          path: packaging/output/lifecycle-logs/*
+          path: |
+            packaging/output/lifecycle-logs/*
+            packaging/output/desktop-runtime-logs/*
+            packaging/output/network-diagnostics/*
           retention-days: 7

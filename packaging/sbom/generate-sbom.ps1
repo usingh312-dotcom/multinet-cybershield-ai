@@ -235,7 +235,19 @@ Write-Host "`n[OK] Wrote Dependency Inventory CSV ($($AllComponents.Count) compo
 $RootBomRef = "pkg:generic/multinet-cybershield-ai@0.1.0-beta.1"
 $AllDirectRefs = $DirectGoRefs + $DirectRustRefs + $DirectNpmRefs + @($DriverBomRef)
 
-$CycloneComponents = @()
+$RootComponent = [ordered]@{
+    "bom-ref"     = $RootBomRef
+    "type"        = "application"
+    "name"        = "MultiNet CyberShield AI"
+    "version"     = "0.1.0-beta.1"
+    "scope"       = "required"
+    "licenses"    = @(@{ "license" = @{ "id" = "Proprietary" } })
+    "purl"        = $RootBomRef
+    "publisher"   = "MultiNet CyberShield AI Authors"
+    "description" = "Intelligent Multi-Link Network Protection, Bonding and Threat Defense"
+}
+
+$CycloneComponents = @($RootComponent)
 foreach ($c in $AllComponents) {
     $licenseObj = @()
     if ($c.License -match '^(MIT|Apache-2.0|BSD-3-Clause|GPL-3.0-or-later)$') {

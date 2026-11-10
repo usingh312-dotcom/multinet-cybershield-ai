@@ -1,4 +1,4 @@
-# MultiNet CyberShield AI — Milestone NM-07.1
+# MultiNet CyberShield AI — Milestone NM-07.1 / NM-07.1.1
 # Wintun Driver Integration & Runtime Loading Report
 
 **Document ID:** `NM07_1_WINTUN_RUNTIME_VALIDATION`  
@@ -7,26 +7,27 @@
 **Author:** Network Driver Integration Engineer & Security Auditor  
 **Repository:** `usingh312-dotcom/multinet-cybershield-ai`  
 **Branch:** `master`  
-**Milestone:** NM-07.1 (Controlled Beta Runtime Qualification)
+**Milestone:** NM-07.1 / NM-07.1.1 (Runtime Test Integrity & Final Beta Qualification)
 
 ---
 
 ## 1. Executive Summary
 
-MultiNet CyberShield AI relies on the open-source **Wintun** virtual network adapter driver (v0.14.1), created by Jason A. Donenfeld / WireGuard LLC, to achieve high-performance Layer 3 packet capture and multi-link bonding on Windows. This report audits the runtime loading mechanism, cryptographic Authenticode signature, dual file placement, and adapter creation lifecycles.
+MultiNet CyberShield AI relies on the open-source **Wintun** virtual network adapter driver (v0.14.1), created by Jason A. Donenfeld / WireGuard LLC, to achieve high-performance Layer 3 packet capture and multi-link bonding on Windows. This report audits the runtime loading mechanism, cryptographic Authenticode signature, dual file placement, and adapter creation lifecycles across testing environments.
 
 ---
 
-## 2. Test Execution & Coverage Status Matrix
+## 2. Test Execution & Coverage Status Matrix by Environment
 
 | Check / Lifecycle | Target Property | Method | Environment | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **Driver Provenance** | Upstream v0.14.1 archive | `fetch-wintun.ps1` | Local / CI | **Locally tested / CI tested** |
-| **Authenticode Status** | Status: `Valid`, WireGuard LLC | `Get-AuthenticodeSignature` | Local / CI | **Locally tested / CI tested** |
-| **PE Machine Type** | AMD64 (`0x8664`) | `Assert-ValidPEImage` | Local / CI | **Locally tested / CI tested** |
-| **Root Placement** | `C:\Program Files\...\wintun.dll` | File system check | Local / CI | **Locally tested / CI tested** |
-| **Drivers Subfolder** | `C:\Program Files\...\drivers\wintun.dll` | File system check | Local / CI | **Locally tested / CI tested** |
-| **Driver Check API** | `platform.CheckDriver()` | Go unit test & runtime | Local / CI | **Locally tested / CI tested** |
+| **Driver Provenance** | Upstream v0.14.1 archive | `fetch-wintun.ps1` | Cloud CI / Dev Host | **Locally tested / CI tested** |
+| **Authenticode Status** | Status: `Valid`, WireGuard LLC | `Get-AuthenticodeSignature` | Cloud CI / Dev Host | **Locally tested / CI tested** |
+| **PE Machine Type** | AMD64 (`0x8664`) | `Assert-ValidPEImage` | Cloud CI / Dev Host | **Locally tested / CI tested** |
+| **Root Placement** | `C:\Program Files\...\wintun.dll` | File system check | Cloud CI / VM | **CI tested / VM tested** |
+| **Drivers Subfolder** | `C:\Program Files\...\drivers\wintun.dll` | File system check | Cloud CI / VM | **CI tested / VM tested** |
+| **MSI Repair Recovery** | Corrupted driver restored | `msiexec /fa` repair cycle | Cloud CI / VM | **CI tested / VM tested** |
+| **Driver Check API** | `platform.CheckDriver()` | Go unit test & runtime | Cloud CI / Dev Host | **Locally tested / CI tested** |
 | **Virtual Adapter Creation** | `wun.CreateTUN("net-merge-service")` | Live adapter setup | Windows VM / Lab | **VM tested** |
 
 ---
@@ -45,7 +46,7 @@ MultiNet CyberShield AI relies on the open-source **Wintun** virtual network ada
 
 ## 4. Runtime Loader & Dual Placement Resolution
 
-### 4.1. Why Wintun Exists in Both Root and `drivers\`
+### 4.1. Dual Placement Rationale
 In Windows, dynamic library loading via `windows.LoadLibraryEx("wintun.dll", ...)` adheres to standard Windows DLL search order:
 1. The directory from which the application loaded (`C:\Program Files\MultiNet CyberShield AI`).
 2. The system directory (`C:\Windows\System32`).
@@ -70,4 +71,3 @@ func CheckDriver() error {
 }
 ```
 Installing `wintun.dll` in both the application root and `drivers\` satisfies standard Windows DLL search rules, driver file inventory standards, and legacy tool expectations.
-

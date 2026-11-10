@@ -95,14 +95,14 @@
                     Description="Launch MultiNet CyberShield AI Security &amp; Bonding Dashboard"
                     WorkingDirectory="INSTALLFOLDER"
                     Icon="AppIcon"
-                    Advertise="yes" />
+                    Advertise="no" />
           <Shortcut Id="DesktopShortcut"
                     Directory="DesktopFolder"
                     Name="MultiNet CyberShield AI"
                     Description="Launch MultiNet CyberShield AI Security &amp; Bonding Dashboard"
                     WorkingDirectory="INSTALLFOLDER"
                     Icon="AppIcon"
-                    Advertise="yes" />
+                    Advertise="no" />
         </File>
       </Component>
 

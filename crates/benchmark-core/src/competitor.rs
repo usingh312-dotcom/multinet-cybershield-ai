@@ -534,8 +534,11 @@ pub fn evaluate_comparability_with_window(
         if trimmed.is_empty() {
             return Err(format!("Gate 16 [Timestamp]: {} timestamp is empty", side));
         }
-        // Strict check: date-only strings without time component (e.g. "2026-11-10") are rejected
-        if trimmed.len() <= 10 || !trimmed.contains('T') {
+        // Strict check: date-only strings without time component (e.g. "YYYY-MM-DD") are rejected
+        if trimmed.len() == 10
+            && trimmed.chars().filter(|&c| c == '-').count() == 2
+            && !trimmed.contains('T')
+        {
             return Err(format!(
                 "Gate 16 [Timestamp]: {} timestamp '{}' is date-only: must include full UTC time in RFC3339 format",
                 side, trimmed

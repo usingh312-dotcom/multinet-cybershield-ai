@@ -262,9 +262,9 @@ Assert-Step "Start Menu shortcut points to valid desktop executable target" {
     $sh = New-Object -ComObject WScript.Shell
     $sc = $sh.CreateShortcut($smLnk)
     $cleanTarget = $sc.TargetPath.Trim('"').Trim()
-    $cleanWorkDir = $sc.WorkingDirectory.Trim('"').Trim()
+    $cleanWorkDir = $sc.WorkingDirectory.Trim('"').Trim().TrimEnd('\')
     $expectedTarget = $desktopExe.Trim('"').Trim()
-    $expectedWorkDir = $InstallDir.Trim('"').Trim()
+    $expectedWorkDir = $InstallDir.Trim('"').Trim().TrimEnd('\')
     
     if ($cleanTarget -ne $expectedTarget) {
         return "Start menu shortcut TargetPath '$cleanTarget' does not match expected '$expectedTarget'"
@@ -292,9 +292,9 @@ Assert-Step "Desktop shortcut created with valid target" {
     $sh = New-Object -ComObject WScript.Shell
     $sc = $sh.CreateShortcut($desktopLnk)
     $cleanTarget = $sc.TargetPath.Trim('"').Trim()
-    $cleanWorkDir = $sc.WorkingDirectory.Trim('"').Trim()
+    $cleanWorkDir = $sc.WorkingDirectory.Trim('"').Trim().TrimEnd('\')
     $expectedTarget = $desktopExe.Trim('"').Trim()
-    $expectedWorkDir = $InstallDir.Trim('"').Trim()
+    $expectedWorkDir = $InstallDir.Trim('"').Trim().TrimEnd('\')
     
     if ($cleanTarget -ne $expectedTarget) {
         return "Desktop shortcut TargetPath '$cleanTarget' does not match expected '$expectedTarget'"
@@ -384,8 +384,9 @@ Assert-Step "Service named-pipe IPC responds to health query (\\.\pipe\multinet-
     if ($json.ok -ne $true) {
         return "IPC health response returned ok != true: $response"
     }
-    if ($json.pipe_version -ne 1) {
-        return "IPC health response returned pipe_version != 1 (was $($json.pipe_version)): $response"
+    $pipeVer = if ($json.result -and $json.result.pipe_version) { $json.result.pipe_version } elseif ($json.pipe_version) { $json.pipe_version } else { $null }
+    if ($pipeVer -ne 1) {
+        return "IPC health response returned pipe_version != 1 (was '$pipeVer'): $response"
     }
     $svcName = if ($json.result -and $json.result.service) { $json.result.service } elseif ($json.service) { $json.service } else { $null }
     if ($svcName -ne "net-merge") {

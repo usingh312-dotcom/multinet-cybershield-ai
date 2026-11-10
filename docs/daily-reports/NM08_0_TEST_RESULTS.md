@@ -85,3 +85,4 @@ All 5 required report artifacts were generated and validated:
 - **Failed:** 0
 - **Skipped:** 0
 - **Regression Status:** 0 regressions across existing Go, Rust, Tauri, and packaging suites.
+

@@ -256,3 +256,4 @@ GitHub Actions executes only safe, deterministic, non-root tests:
 - Verify that `manifest.json`, `results.json`, and `report.html` are generated and valid.
 - Zero live network or route modification commands are executed in CI.
 - Strict aggregate gate: any `FAIL` or unexpected missing test causes CI job termination.
+

@@ -334,7 +334,7 @@ pub fn spawn_traffic_monitor(state: Arc<DiagnosticsState>, pool: sqlx::SqlitePoo
             *lock(&state.last_sample) = Some(Instant::now());
 
             ticks = ticks.wrapping_add(1);
-            if ticks % PRUNE_EVERY_TICKS == 0 {
+            if ticks.is_multiple_of(PRUNE_EVERY_TICKS) {
                 let cutoff = OffsetDateTime::now_utc() - time::Duration::hours(TRAFFIC_RETENTION_HOURS);
                 if let Ok(cutoff) = cutoff.format(&Rfc3339) {
                     let _ = sqlx::query("DELETE FROM traffic_samples WHERE sampled_at < $1")

@@ -25,7 +25,7 @@ pub fn open_with_retry(pipe_name: &str, max_wait: Duration) -> io::Result<File> 
                 if start.elapsed() >= max_wait {
                     return Err(e);
                 }
-                let _ = std::thread::sleep(delay);
+                std::thread::sleep(delay);
                 delay = (delay * 2).min(Duration::from_secs(2));
             }
         }

@@ -119,7 +119,7 @@ fn serialize_frame(frame: &tunnel_protocol::PacketFrame) -> Vec<u8> {
     let mut out = Vec::with_capacity(
         2 + 8 + 1 + 32 + frame.payload.len(),
     );
-    out.extend_from_slice(&(frame.header.length as u16).to_le_bytes());
+    out.extend_from_slice(&frame.header.length.to_le_bytes());
     out.extend_from_slice(&frame.header.seq_no.to_le_bytes());
     out.push(frame.header.flags);
     out.extend_from_slice(&frame.header.auth_tag);

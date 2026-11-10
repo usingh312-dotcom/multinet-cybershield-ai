@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+#[cfg(windows)]
 use uuid::Uuid;
 
 pub mod contracts;
@@ -56,6 +57,7 @@ pub struct NetMergeClient {
 }
 
 struct NetMergeClientInner {
+    #[allow(dead_code)]
     pipe_name: String,
     connected: AtomicBool,
     mode: Mutex<NetworkMode>,
@@ -87,9 +89,9 @@ impl NetMergeClient {
         #[cfg(not(windows))]
         {
             let _ = self;
-            return Err(error::ClientError::UnsupportedPlatform(
+            Err(error::ClientError::UnsupportedPlatform(
                 "named-pipe client is Windows-only".into(),
-            ));
+            ))
         }
         #[cfg(windows)]
         {
@@ -166,7 +168,7 @@ impl NetMergeClient {
         request: contracts::Request,
         timeout: Duration,
     ) -> Result<contracts::Response, error::ClientError> {
-        let id = request.id.clone();
+        let _id = request.id.clone();
         let payload = serde_json::to_vec(&request)
             .map_err(|e| error::ClientError::Serialization(e.to_string()))?;
         #[cfg(windows)]
@@ -195,6 +197,7 @@ impl NetMergeClient {
     /// Perform a write + read exchange with a timeout. Runs the blocking I/O
     /// on a worker thread and waits on a channel, so a stalled service does
     /// not block the caller forever.
+    #[allow(dead_code)]
     fn exchange_with_timeout(
         pipe: &File,
         payload: &[u8],

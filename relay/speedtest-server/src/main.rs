@@ -133,7 +133,9 @@ async fn upload(State(state): State<AppState>, body: Bytes) -> Result<Json<serde
     })))
 }
 
-fn parse_args() -> Result<(SocketAddr, Option<String>, Option<String>, u64, String), String> {
+type ServerConfigTuple = (SocketAddr, Option<String>, Option<String>, u64, String);
+
+fn parse_args() -> Result<ServerConfigTuple, String> {
     let mut bind = "127.0.0.1:9443".to_string();
     let mut cert = None;
     let mut key = None;

@@ -114,7 +114,6 @@ impl SqliteAuditSink {
     }
 
     #[allow(dead_code)] // exercised by db tests only (no audit-viewer command yet)
-
     pub async fn events_of_kind(&self, kind: &str) -> Result<Vec<StoredAuditEvent>, DbError> {
         let rows = sqlx::query(
             "SELECT id, kind, subject_id, detail, created_at FROM audit_logs \
@@ -137,7 +136,6 @@ impl SqliteAuditSink {
     }
 
     #[allow(dead_code)] // exercised by db tests only (no audit-viewer command yet)
-
     pub async fn count_events_for_subject(&self, subject_id: &str) -> Result<i64, DbError> {
         let row = sqlx::query("SELECT COUNT(*) AS n FROM audit_logs WHERE subject_id = $1")
             .bind(subject_id)

@@ -11,23 +11,18 @@ use serde::{Deserialize, Serialize};
 
 pub type PathId = String;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PathHealth {
     Connected,
     Degraded,
     Unhealthy,
+    #[default]
     Disconnected,
 }
 
 impl PathHealth {
     pub fn usable(&self) -> bool {
         matches!(self, PathHealth::Connected | PathHealth::Degraded)
-    }
-}
-
-impl Default for PathHealth {
-    fn default() -> Self {
-        PathHealth::Disconnected
     }
 }
 

@@ -150,7 +150,7 @@ try {
     foreach ($relFile in $expectedFiles) {
         $fullPath = Join-Path $extractDir $relFile
         Assert-Condition "Package contains $relFile" {
-            Test-Path $fullPath -and (Get-Item $fullPath).Length -gt 0
+            (Test-Path $fullPath) -and ((Get-Item $fullPath).Length -gt 0)
         }
     }
 

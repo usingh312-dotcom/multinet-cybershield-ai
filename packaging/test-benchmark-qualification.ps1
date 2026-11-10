@@ -256,8 +256,6 @@ $summaryReport = @{
     checks_failed = $failCount
     results = $testResults
 }
-    results = $testResults
-}
 $summaryJson = $summaryReport | ConvertTo-Json -Depth 5
 $summaryFile = Join-Path $OutputDir "benchmark-qualification-summary.json"
 Set-Content -Path $summaryFile -Value $summaryJson -Encoding UTF8

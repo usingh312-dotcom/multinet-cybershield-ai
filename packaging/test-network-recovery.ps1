@@ -155,7 +155,7 @@ Assert-Check "Successfully queried IPv4 network interfaces" {
 Write-Host "`n--- Step 3: Capture Routing Table State ---" -ForegroundColor Yellow
 
 $preRoutes = Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object DestinationPrefix, NextHop, RouteMetric, InterfaceIndex, InterfaceAlias
-$defaultGateway = $preRoutes | Where-Object { $_.DestinationPrefix -eq "0.0.0.0/0" }
+$defaultGateway = $preRoutes | Where-Object { $_.DestinationPrefix -eq "0.0.0.0/0" } | Select-Object -First 1
 Assert-Check "Active default gateway route exists (0.0.0.0/0)" {
     $defaultGateway -ne $null
 }
@@ -276,13 +276,24 @@ if ($serviceExe) {
 Write-Host "`n--- Step 5: Controlled Orphaned-Route Cleanup Test ---" -ForegroundColor Yellow
 
 if ($isElevated -and $serviceExe) {
-    # Safely stage controlled capture test routes pointing to local loopback (does not affect physical default route 0.0.0.0/0)
-    $loopbackIp = "127.0.0.1"
+    # Safely stage controlled capture test routes pointing through default gateway interface with metric 9999
+    $gwNextHop = if ($defaultGateway -and $defaultGateway.NextHop) { $defaultGateway.NextHop } else { "127.0.0.1" }
+    $gwIfIndex = if ($defaultGateway -and $defaultGateway.InterfaceIndex) { $defaultGateway.InterfaceIndex } else { 1 }
     
     try {
-        Write-Host "Staging controlled test capture routes (0.0.0.0/1 and 128.0.0.0/1)..." -ForegroundColor Cyan
-        & route add 0.0.0.0 mask 128.0.0.0 $loopbackIp metric 9999 | Out-Null
-        & route add 128.0.0.0 mask 128.0.0.0 $loopbackIp metric 9999 | Out-Null
+        Write-Host "Staging controlled test capture routes (0.0.0.0/1 and 128.0.0.0/1) via interface $gwIfIndex..." -ForegroundColor Cyan
+        try {
+            New-NetRoute -DestinationPrefix "0.0.0.0/1" -InterfaceIndex $gwIfIndex -NextHop $gwNextHop -RouteMetric 9999 -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Out-Null
+            New-NetRoute -DestinationPrefix "128.0.0.0/1" -InterfaceIndex $gwIfIndex -NextHop $gwNextHop -RouteMetric 9999 -PolicyStore ActiveStore -ErrorAction SilentlyContinue | Out-Null
+        } catch {}
+        
+        $routesNowCheck = Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        if (-not ($routesNowCheck | Where-Object { $_.DestinationPrefix -eq "0.0.0.0/1" })) {
+            & route add 0.0.0.0 mask 128.0.0.0 $gwNextHop metric 9999 if $gwIfIndex 2>$null | Out-Null
+        }
+        if (-not ($routesNowCheck | Where-Object { $_.DestinationPrefix -eq "128.0.0.0/1" })) {
+            & route add 128.0.0.0 mask 128.0.0.0 $gwNextHop metric 9999 if $gwIfIndex 2>$null | Out-Null
+        }
         
         Assert-Check "Controlled test capture routes staged in routing table" {
             $routesNow = Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue
@@ -305,11 +316,13 @@ if ($isElevated -and $serviceExe) {
         }
         
         Assert-Check "Physical default gateway (0.0.0.0/0) remained intact and unchanged" {
-            $currentDefault = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -AddressFamily IPv4 -ErrorAction SilentlyContinue
-            ($currentDefault -ne $null) -and ($currentDefault.NextHop -eq $defaultGateway.NextHop)
+            $currentDefault = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -First 1
+            ($currentDefault -ne $null) -and ($currentDefault.NextHop -eq $gwNextHop)
         }
     } finally {
         # Guaranteed cleanup: Always attempt route delete in finally block
+        Remove-NetRoute -DestinationPrefix "0.0.0.0/1" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        Remove-NetRoute -DestinationPrefix "128.0.0.0/1" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
         & route delete 0.0.0.0 mask 128.0.0.0 2>$null | Out-Null
         & route delete 128.0.0.0 mask 128.0.0.0 2>$null | Out-Null
     }

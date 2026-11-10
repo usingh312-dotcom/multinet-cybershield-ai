@@ -249,7 +249,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: release-package-nm07-0-1
-          path: packaging/output
+          path: .
 
       - name: Run Desktop Runtime Qualification Test
         shell: pwsh

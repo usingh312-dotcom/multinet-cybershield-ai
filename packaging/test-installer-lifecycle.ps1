@@ -33,7 +33,12 @@ if (-not (Test-Path $MsiPath)) {
     if (Test-Path $altMsi) {
         $MsiPath = $altMsi
     } else {
-        throw "MSI Lifecycle Failure: MSI installer not found at $MsiPath or $altMsi"
+        $found = Get-ChildItem -Path $RepoRoot -Filter "MultiNetCyberShield-Setup.msi" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) {
+            $MsiPath = $found.FullName
+        } else {
+            throw "MSI Lifecycle Failure: MSI installer not found at $MsiPath or $altMsi"
+        }
     }
 }
 $FullMsiPath = (Resolve-Path $MsiPath).Path
@@ -95,6 +100,10 @@ Assert-Step "Execute MSI Clean Silent Installation" {
     Write-Host "`nRunning msiexec /i `"$FullMsiPath`" /qn /l*v `"$InstallLog`"..." -ForegroundColor Cyan
     $process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$FullMsiPath`" /qn /l*v `"$InstallLog`"" -Wait -PassThru
     Write-Host "msiexec exited with code: $($process.ExitCode)" -ForegroundColor $(if ($process.ExitCode -eq 0) { "Green" } else { "Red" })
+    if ($process.ExitCode -ne 0 -and (Test-Path $InstallLog)) {
+        Write-Host "Install Log Tail:" -ForegroundColor Red
+        Get-Content $InstallLog -Tail 40
+    }
     $process.ExitCode -eq 0
 }
 
@@ -181,6 +190,10 @@ if (-not $SkipRepair) {
         Write-Host "Running msiexec /fa `"$FullMsiPath`" /qn /l*v `"$RepairLog`"..." -ForegroundColor Cyan
         $repairProc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/fa `"$FullMsiPath`" /qn /l*v `"$RepairLog`"" -Wait -PassThru
         Write-Host "msiexec repair exited with code: $($repairProc.ExitCode)" -ForegroundColor $(if ($repairProc.ExitCode -eq 0) { "Green" } else { "Red" })
+        if ($repairProc.ExitCode -ne 0 -and (Test-Path $RepairLog)) {
+            Write-Host "Repair Log Tail:" -ForegroundColor Red
+            Get-Content $RepairLog -Tail 40
+        }
         $repairProc.ExitCode -eq 0
     }
 
@@ -199,6 +212,10 @@ if (-not $SkipUninstall) {
         Write-Host "Running msiexec /x `"$FullMsiPath`" /qn /l*v `"$UninstallLog`"..." -ForegroundColor Cyan
         $uninstProc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/x `"$FullMsiPath`" /qn /l*v `"$UninstallLog`"" -Wait -PassThru
         Write-Host "msiexec uninstall exited with code: $($uninstProc.ExitCode)" -ForegroundColor $(if ($uninstProc.ExitCode -eq 0) { "Green" } else { "Red" })
+        if ($uninstProc.ExitCode -ne 0 -and (Test-Path $UninstallLog)) {
+            Write-Host "Uninstall Log Tail:" -ForegroundColor Red
+            Get-Content $UninstallLog -Tail 40
+        }
         $uninstProc.ExitCode -eq 0
     }
 

@@ -233,21 +233,11 @@ Write-Host "`n[OK] Wrote Dependency Inventory CSV ($($AllComponents.Count) compo
 
 # 6. Generate CycloneDX v1.5 JSON SBOM with Components & Dependency Graph
 $RootBomRef = "pkg:generic/multinet-cybershield-ai@0.1.0-beta.1"
-$AllDirectRefs = $DirectGoRefs + $DirectRustRefs + $DirectNpmRefs + @($DriverBomRef)
+$AllDirectRefs = @($DirectGoRefs + $DirectRustRefs + $DirectNpmRefs + @($DriverBomRef)) | Select-Object -Unique
 
-$RootComponent = [ordered]@{
-    "bom-ref"     = $RootBomRef
-    "type"        = "application"
-    "name"        = "MultiNet CyberShield AI"
-    "version"     = "0.1.0-beta.1"
-    "scope"       = "required"
-    "licenses"    = @(@{ "license" = @{ "id" = "Proprietary" } })
-    "purl"        = $RootBomRef
-    "publisher"   = "MultiNet CyberShield AI Authors"
-    "description" = "Intelligent Multi-Link Network Protection, Bonding and Threat Defense"
-}
-
-$CycloneComponents = @($RootComponent)
+# In CycloneDX v1.5, root application belongs exclusively in metadata.component.
+# It MUST NOT be duplicated in components[].
+$CycloneComponents = @()
 foreach ($c in $AllComponents) {
     $licenseObj = @()
     if ($c.License -match '^(MIT|Apache-2.0|BSD-3-Clause|GPL-3.0-or-later)$') {
@@ -300,6 +290,7 @@ foreach ($crateBomRef in $CrateDependencies.Keys) {
                 $resolvedChildRefs += $CrateNameToRef[$dName]
             }
         }
+        $resolvedChildRefs = @($resolvedChildRefs | Select-Object -Unique)
         if ($resolvedChildRefs.Count -gt 0) {
             $DependencyGraph += [ordered]@{
                 "ref"       = $crateBomRef
@@ -320,7 +311,7 @@ $CycloneDX = [ordered]@{
             @{
                 "vendor"  = "MultiNet CyberShield AI"
                 "name"    = "generate-sbom.ps1"
-                "version" = "1.1.0"
+                "version" = "1.2.0"
             }
         )
         "component" = [ordered]@{
@@ -336,8 +327,20 @@ $CycloneDX = [ordered]@{
 }
 
 $SbomPath = Join-Path $FullOutput "sbom.json"
-$CycloneDX | ConvertTo-Json -Depth 8 | Set-Content -Path $SbomPath -Encoding utf8
-Write-Host "[OK] Wrote CycloneDX v1.5 JSON SBOM with $($DependencyGraph.Count) Dependency Edges: $SbomPath" -ForegroundColor Green
+$jsonText = $CycloneDX | ConvertTo-Json -Depth 8
+[System.IO.File]::WriteAllText($SbomPath, $jsonText, (New-Object System.Text.UTF8Encoding($false)))
+Write-Host "[OK] Wrote CycloneDX v1.5 JSON SBOM ($($CycloneComponents.Count) components, $($DependencyGraph.Count) Dependency Nodes): $SbomPath" -ForegroundColor Green
+
+# 7. Validate CycloneDX 1.5 JSON Schema and Graph Integrity
+$validatorScript = Join-Path $ScriptDir "validate-sbom.py"
+$schemaPath = Join-Path $ScriptDir "schema\bom-1.5.schema.json"
+if (Test-Path $validatorScript) {
+    Write-Host "`nRunning CycloneDX 1.5 Schema & Graph Validation..." -ForegroundColor Cyan
+    & python $validatorScript $SbomPath $schemaPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "SBOM Conformance Error: Schema or graph validation failed"
+    }
+}
 
 # 7. Generate SHA256 Checksums for Release Binaries in Staging
 $ChecksumsPath = Join-Path $FullOutput "checksums.sha256"

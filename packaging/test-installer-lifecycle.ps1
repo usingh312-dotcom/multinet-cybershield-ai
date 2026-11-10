@@ -1,12 +1,13 @@
 # MultiNet CyberShield AI - MSI Installation & Lifecycle Qualification Test Harness
-# Milestone: NM-07.1.1 (Runtime Test Integrity & Final Beta Qualification)
+# Milestone: NM-07.1.2 (Runtime Test Integrity & Final Beta Qualification)
 # Validates clean installation, service registration, Wintun placement, repair, and clean uninstallation
 param (
     [string]$MsiPath = "$PSScriptRoot\output\MultiNetCyberShield-Setup.msi",
     [string]$LogDir = "$PSScriptRoot\output\lifecycle-logs",
     [switch]$SkipRepair,
     [switch]$SkipUninstall,
-    [switch]$AllowSkip
+    [switch]$AllowSkip,
+    [switch]$Strict = ($env:CI -eq 'true')
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +16,8 @@ $RepoRoot = Resolve-Path "$ScriptDir\.."
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "MultiNet CyberShield AI - MSI Lifecycle Qualification Test" -ForegroundColor Cyan
-Write-Host "Milestone: NM-07.1.1 (Runtime Environment Verification)" -ForegroundColor Cyan
+Write-Host "Milestone: NM-07.1.2 (Runtime Environment Verification)" -ForegroundColor Cyan
+Write-Host "Strict Mode Active: $Strict" -ForegroundColor $(if ($Strict) { "Yellow" } else { "DarkGray" })
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # Ensure log directory exists
@@ -56,11 +58,22 @@ function Record-TestResult {
 function Save-Results {
     $SuiteStopwatch.Stop()
     $total = $script:Passed + $script:Failed + $script:Skipped + $script:Blocked + $script:NotTested
-    $verdict = if ($script:Failed -gt 0 -or $script:Blocked -gt 0) { "FAIL" } elseif ($script:Passed -gt 0) { "PASS" } else { "SKIPPED" }
+    $verdict = if ($script:Failed -gt 0) {
+        "FAIL"
+    } elseif ($Strict -and ($script:Skipped -gt 0 -or $script:Blocked -gt 0)) {
+        "FAIL"
+    } elseif ($script:Blocked -gt 0) {
+        "BLOCKED"
+    } elseif ($script:Passed -gt 0) {
+        "PASS"
+    } else {
+        "SKIPPED"
+    }
     
     $report = [ordered]@{
         "suite"     = "MSI Installation & Lifecycle Qualification"
         "timestamp" = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        "strict"    = [bool]$Strict
         "summary"   = [ordered]@{
             "total"            = $total
             "passed"           = $script:Passed
@@ -73,7 +86,9 @@ function Save-Results {
         }
         "tests"     = $script:TestResults
     }
-    $report | ConvertTo-Json -Depth 6 | Set-Content -Path $ResultsFile -Encoding utf8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $json = $report | ConvertTo-Json -Depth 6
+    [System.IO.File]::WriteAllText($ResultsFile, $json, $utf8NoBom)
     Write-Host "`n[OK] Machine-readable test results saved to: $ResultsFile" -ForegroundColor Cyan
 }
 
@@ -109,7 +124,7 @@ if (-not $isElevated) {
     Write-Host "[WARNING] This test harness requires Administrator privileges for real MSI installation & service control." -ForegroundColor Yellow
     Write-Host "When run under non-elevated user, live Windows Installer actions are BLOCKED." -ForegroundColor Yellow
     
-    if ($AllowSkip) {
+    if ($AllowSkip -and -not $Strict) {
         Record-TestResult -Name "Administrator Privilege Requirement" -Status "SKIPPED" -Details "Runner is not elevated; skipped per -AllowSkip switch"
         Save-Results
         exit 0
@@ -246,10 +261,18 @@ Assert-Step "Start Menu shortcut points to valid desktop executable target" {
     
     $sh = New-Object -ComObject WScript.Shell
     $sc = $sh.CreateShortcut($smLnk)
-    $targetMatches = ($sc.TargetPath -eq $desktopExe) -or ($sc.TargetPath -like "*multinet-cybershield-ai.exe*")
-    $workDirMatches = ($sc.WorkingDirectory -eq $InstallDir)
+    $cleanTarget = $sc.TargetPath.Trim('"').Trim()
+    $cleanWorkDir = $sc.WorkingDirectory.Trim('"').Trim()
+    $expectedTarget = $desktopExe.Trim('"').Trim()
+    $expectedWorkDir = $InstallDir.Trim('"').Trim()
     
-    $targetMatches -or ($workDirMatches -and (Test-Path $smLnk))
+    if ($cleanTarget -ne $expectedTarget) {
+        return "Start menu shortcut TargetPath '$cleanTarget' does not match expected '$expectedTarget'"
+    }
+    if ($cleanWorkDir -ne $expectedWorkDir) {
+        return "Start menu shortcut WorkingDirectory '$cleanWorkDir' does not match expected '$expectedWorkDir'"
+    }
+    $true
 }
 
 Assert-Step "Desktop shortcut created with valid target" {
@@ -268,10 +291,18 @@ Assert-Step "Desktop shortcut created with valid target" {
     
     $sh = New-Object -ComObject WScript.Shell
     $sc = $sh.CreateShortcut($desktopLnk)
-    $targetMatches = ($sc.TargetPath -eq $desktopExe) -or ($sc.TargetPath -like "*multinet-cybershield-ai.exe*")
-    $workDirMatches = ($sc.WorkingDirectory -eq $InstallDir)
+    $cleanTarget = $sc.TargetPath.Trim('"').Trim()
+    $cleanWorkDir = $sc.WorkingDirectory.Trim('"').Trim()
+    $expectedTarget = $desktopExe.Trim('"').Trim()
+    $expectedWorkDir = $InstallDir.Trim('"').Trim()
     
-    $targetMatches -or ($workDirMatches -and (Test-Path $desktopLnk))
+    if ($cleanTarget -ne $expectedTarget) {
+        return "Desktop shortcut TargetPath '$cleanTarget' does not match expected '$expectedTarget'"
+    }
+    if ($cleanWorkDir -ne $expectedWorkDir) {
+        return "Desktop shortcut WorkingDirectory '$cleanWorkDir' does not match expected '$expectedWorkDir'"
+    }
+    $true
 }
 
 # -----------------------------------------------------------------------------
@@ -283,20 +314,39 @@ Assert-Step "Windows Service registered in SCM with LocalSystem account ($Servic
     $cim = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
     if (-not $cim) { return "Service not found in SCM" }
     $cleanPath = $cim.PathName.Trim('"').Trim()
-    $pathMatches = ($cleanPath -eq $serviceExe -or $cleanPath -like "*net-merge-service.exe*")
+    $expectedPath = $serviceExe.Trim('"').Trim()
+    $pathMatches = ($cleanPath -eq $expectedPath -or $cleanPath -like "*net-merge-service.exe*")
     $accountMatches = ($cim.StartName -match "LocalSystem|SYSTEM")
-    $pathMatches -and $accountMatches
+    if (-not $pathMatches) { return "Service PathName '$cleanPath' does not match '$expectedPath'" }
+    if (-not $accountMatches) { return "Service StartName '$($cim.StartName)' is not LocalSystem" }
+    $true
 }
 
-Assert-Step "Windows Service runtime state is Running" {
+Assert-Step "Windows Service auto-started by installer upon completion" {
     $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if (-not $svc) { return "Service controller query failed" }
+    if (-not $svc) { return "Service $ServiceName not found in SCM" }
     if ($svc.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
-        Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 3
-        $svc.Refresh()
+        return "Service was not running immediately after install (Status: $($svc.Status))"
     }
-    $svc.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running
+    $true
+}
+
+Assert-Step "Manual service stop and start lifecycle verification" {
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if (-not $svc) { return "Service $ServiceName not found in SCM" }
+    Stop-Service -Name $ServiceName -Force
+    Start-Sleep -Seconds 2
+    $svc.Refresh()
+    if ($svc.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+        return "Failed to stop service manually (Status: $($svc.Status))"
+    }
+    Start-Service -Name $ServiceName
+    Start-Sleep -Seconds 2
+    $svc.Refresh()
+    if ($svc.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+        return "Failed to restart service manually (Status: $($svc.Status))"
+    }
+    $true
 }
 
 Assert-Step "Service named-pipe IPC responds to health query (\\.\pipe\multinet-netmerge-v1)" {
@@ -323,8 +373,25 @@ Assert-Step "Service named-pipe IPC responds to health query (\\.\pipe\multinet-
         }
     }
     if (-not $connected) { return "Could not connect to named pipe \\.\pipe\multinet-netmerge-v1 after retries" }
+    if (-not $response) { return "Received empty response from named pipe" }
     Write-Host " (IPC Response: $response) " -NoNewline
-    ($response -match '"pipe_version"\s*:\s*1') -and ($response -match '"ok"\s*:\s*true')
+    
+    try {
+        $json = $response | ConvertFrom-Json
+    } catch {
+        return "Failed to parse IPC response as JSON: $response"
+    }
+    if ($json.ok -ne $true) {
+        return "IPC health response returned ok != true: $response"
+    }
+    if ($json.pipe_version -ne 1) {
+        return "IPC health response returned pipe_version != 1 (was $($json.pipe_version)): $response"
+    }
+    $svcName = if ($json.result -and $json.result.service) { $json.result.service } elseif ($json.service) { $json.service } else { $null }
+    if ($svcName -ne "net-merge") {
+        return "IPC health response service != 'net-merge' (was '$svcName'): $response"
+    }
+    $true
 }
 
 # -----------------------------------------------------------------------------
@@ -351,8 +418,15 @@ if (-not $SkipRepair) {
         $repairProc.ExitCode -eq 0
     }
 
-    Assert-Step "MSI Repair restored deleted file (drivers\wintun.dll)" {
-        (Test-Path $wintunDrivers) -and ((Get-Item $wintunDrivers).Length -gt 100000)
+    Assert-Step "MSI Repair restored deleted file with valid Authenticode signature (drivers\wintun.dll)" {
+        if (-not (Test-Path $wintunDrivers)) { return "Restored file drivers\wintun.dll not found" }
+        $item = Get-Item $wintunDrivers
+        if ($item.Length -lt 100000) { return "Restored file drivers\wintun.dll length ($($item.Length)) is unexpectedly small" }
+        $sig = Get-AuthenticodeSignature $wintunDrivers
+        if ($sig.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or $sig.SignerCertificate.Subject -notmatch "WireGuard LLC") {
+            return "Restored drivers\wintun.dll signature verification failed: $($sig.StatusMessage)"
+        }
+        $true
     }
 } else {
     Record-TestResult -Name "MSI Repair Validation" -Status "SKIPPED" -Details "Skipped via -SkipRepair switch"
@@ -408,9 +482,20 @@ Write-Host "==========================================================" -Foregro
 
 Save-Results
 
-if ($Failed -gt 0 -or $Blocked -gt 0) {
-    Write-Host "[ERROR] Installer lifecycle qualification failed!" -ForegroundColor Red
+if ($Failed -gt 0) {
+    Write-Host "[ERROR] Installer lifecycle qualification failed ($Failed failures)!" -ForegroundColor Red
     exit 1
+} elseif ($Blocked -gt 0 -or $Skipped -gt 0) {
+    if ($Strict) {
+        Write-Host "[ERROR] Strict mode active: Skipped ($Skipped) or Blocked ($Blocked) tests cause failure." -ForegroundColor Red
+        exit 1
+    }
+    if ($Blocked -gt 0) {
+        Write-Host "[WARNING] Installer lifecycle qualification blocked ($Blocked blocked)." -ForegroundColor DarkYellow
+        if ($AllowSkip) { exit 0 } else { exit 2 }
+    } else {
+        exit 0
+    }
 } else {
     Write-Host "[SUCCESS] All installer lifecycle qualification tests passed!" -ForegroundColor Green
     exit 0

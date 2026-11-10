@@ -1,10 +1,11 @@
 # MultiNet CyberShield AI - Desktop Application Runtime & Prerequisites Test Harness
-# Milestone: NM-07.1.1 (Controlled Beta Runtime Qualification)
+# Milestone: NM-07.1.2 (Controlled Beta Runtime Qualification)
 # Validates WebView2 runtime, frontend assets, database initialization, live execution, and IPC readiness
 param (
     [string]$AppDir = "$PSScriptRoot\staging",
     [string]$LogDir = "$PSScriptRoot\output\desktop-runtime-logs",
-    [switch]$AllowSkip
+    [switch]$AllowSkip,
+    [switch]$Strict = ($env:CI -eq 'true')
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +14,8 @@ $RepoRoot = Resolve-Path "$ScriptDir\.."
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "MultiNet CyberShield AI - Desktop Runtime Qualification" -ForegroundColor Cyan
-Write-Host "Milestone: NM-07.1.1 (WebView2, Database & Live Runtime)" -ForegroundColor Cyan
+Write-Host "Milestone: NM-07.1.2 (WebView2, Database & Live Runtime)" -ForegroundColor Cyan
+Write-Host "Strict Mode Active: $Strict" -ForegroundColor $(if ($Strict) { "Yellow" } else { "DarkGray" })
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # Ensure log directory exists
@@ -54,11 +56,22 @@ function Record-TestResult {
 function Save-Results {
     $SuiteStopwatch.Stop()
     $total = $script:Passed + $script:Failed + $script:Skipped + $script:Blocked + $script:NotTested
-    $verdict = if ($script:Failed -gt 0) { "FAIL" } elseif ($script:Blocked -gt 0) { "BLOCKED" } elseif ($script:Passed -gt 0) { "PASS" } else { "SKIPPED" }
+    $verdict = if ($script:Failed -gt 0) {
+        "FAIL"
+    } elseif ($Strict -and ($script:Skipped -gt 0 -or $script:Blocked -gt 0)) {
+        "FAIL"
+    } elseif ($script:Blocked -gt 0) {
+        "BLOCKED"
+    } elseif ($script:Passed -gt 0) {
+        "PASS"
+    } else {
+        "SKIPPED"
+    }
     
     $report = [ordered]@{
         "suite"     = "Desktop Application Runtime Qualification"
         "timestamp" = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        "strict"    = [bool]$Strict
         "summary"   = [ordered]@{
             "total"            = $total
             "passed"           = $script:Passed
@@ -71,7 +84,9 @@ function Save-Results {
         }
         "tests"     = $script:TestResults
     }
-    $report | ConvertTo-Json -Depth 6 | Set-Content -Path $ResultsFile -Encoding utf8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $json = $report | ConvertTo-Json -Depth 6
+    [System.IO.File]::WriteAllText($ResultsFile, $json, $utf8NoBom)
     Write-Host "`n[OK] Machine-readable test results saved to: $ResultsFile" -ForegroundColor Cyan
 }
 
@@ -152,7 +167,7 @@ Assert-Runtime "Tauri database initialization and migration source verified" {
 # -----------------------------------------------------------------------------
 # 4. Live Desktop Application Runtime Execution (P1)
 # -----------------------------------------------------------------------------
-Write-Host "`n--- Step 4: Live Desktop Application Execution ---" -ForegroundColor Yellow
+Write-Host "`n--- Step 4: Live Desktop Application Execution & SQLite Inspection ---" -ForegroundColor Yellow
 
 $desktopCandidates = @(
     (Join-Path $RepoRoot "target\release\multinet-cybershield-ai.exe"),
@@ -166,60 +181,107 @@ if ($desktopExe) {
     Assert-Runtime "Live desktop execution initializes SQLite DB with migrations" {
         $tempProfile = Join-Path ([System.IO.Path]::GetTempPath()) "multinet-runtime-test-$([System.Guid]::NewGuid().ToString('N'))"
         $tempAppData = Join-Path $tempProfile "AppData\Roaming"
-        New-Item -ItemType Directory -Force -Path $tempAppData | Out-Null
-        
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $desktopExe
-        $psi.EnvironmentVariables["APPDATA"] = $tempAppData
-        $psi.UseShellExecute = $false
+        $proc = $null
         
         try {
-            $proc = [System.Diagnostics.Process]::Start($psi)
-        } catch {
-            $errMsg = $_.Exception.Message
-            if ($errMsg -match "Application Control|blocked by rule|Smart App Control") {
-                return "Blocked by Application Control: $errMsg"
+            New-Item -ItemType Directory -Force -Path $tempAppData | Out-Null
+            
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $desktopExe
+            $psi.EnvironmentVariables["APPDATA"] = $tempAppData
+            $psi.UseShellExecute = $false
+            
+            try {
+                $proc = [System.Diagnostics.Process]::Start($psi)
+            } catch {
+                $errMsg = $_.Exception.Message
+                if ($errMsg -match "Application Control|blocked by rule|Smart App Control") {
+                    return "Blocked by Application Control: $errMsg"
+                }
+                throw
             }
-            throw
-        }
-        
-        if (-not $proc) { return "Failed to start desktop process" }
-        
-        $dbPath = Join-Path $tempAppData "ai.multinet.cybershield\multinet-cybershield-ai.db"
-        $dbFound = $false
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        
-        while ($sw.ElapsedMilliseconds -lt 15000) {
-            if ((Test-Path $dbPath) -and ((Get-Item $dbPath).Length -gt 0)) {
-                $dbFound = $true
-                break
-            }
-            if ($proc.HasExited) {
+            
+            if (-not $proc) { return "Failed to start desktop process" }
+            
+            $dbPath = Join-Path $tempAppData "ai.multinet.cybershield\multinet-cybershield-ai.db"
+            $dbFound = $false
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            
+            while ($sw.ElapsedMilliseconds -lt 15000) {
                 if ((Test-Path $dbPath) -and ((Get-Item $dbPath).Length -gt 0)) {
                     $dbFound = $true
+                    break
                 }
-                break
+                if ($proc.HasExited) {
+                    if ((Test-Path $dbPath) -and ((Get-Item $dbPath).Length -gt 0)) {
+                        $dbFound = $true
+                    }
+                    break
+                }
+                Start-Sleep -Milliseconds 500
             }
-            Start-Sleep -Milliseconds 500
-        }
-        
-        # Gracefully stop process
-        try {
-            $proc.CloseMainWindow() | Out-Null
-            Start-Sleep -Milliseconds 1500
+            
+            # Gracefully stop process
+            $gracefulShutdown = $false
             if (-not $proc.HasExited) {
-                $proc.Kill()
+                $closed = $proc.CloseMainWindow()
+                if ($closed) {
+                    $gracefulShutdown = $proc.WaitForExit(5000)
+                }
+                if (-not $proc.HasExited) {
+                    Write-Host " (Process did not exit after CloseMainWindow, terminating) " -NoNewline
+                    $proc.Kill()
+                    $proc.WaitForExit(3000)
+                }
+            } else {
+                $gracefulShutdown = $true
             }
-            $proc.WaitForExit(3000)
-        } catch {}
-        
-        # Cleanup temp profile
-        Remove-Item -Path $tempProfile -Recurse -Force -ErrorAction SilentlyContinue
-        
-        if (-not $dbFound) {
-            return "Database file not created within timeout ($dbPath)"
+            
+            if (-not $dbFound) {
+                return "Database file not created within timeout ($dbPath)"
+            }
+            
+            # Inspect SQLite database schema & migrations using python
+            $pyScript = @"
+import sqlite3, sys
+db = sys.argv[1]
+conn = sqlite3.connect(db)
+cur = conn.cursor()
+cur.execute("SELECT COUNT(*) FROM _sqlx_migrations")
+mig_count = cur.fetchone()[0]
+if mig_count < 3:
+    print(f"FAILED: migration count {mig_count} < 3")
+    sys.exit(1)
+cur.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
+names = set(r[0] for r in cur.fetchall())
+required = ['incidents', 'security_events']
+for req in required:
+    if req not in names:
+        print(f"FAILED: missing required table {req}")
+        sys.exit(2)
+if 'audit_events' not in names and 'audit_logs' not in names:
+    print("FAILED: missing audit_events/audit_logs table")
+    sys.exit(3)
+if 'traffic_snapshots' not in names and 'traffic_samples' not in names:
+    print("FAILED: missing traffic_snapshots/traffic_samples table")
+    sys.exit(4)
+print(f"OK: {mig_count} migrations, verified required tables")
+sys.exit(0)
+"@
+            $pyResult = python -c $pyScript "$dbPath" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                return "SQLite DB inspection failed: $pyResult"
+            }
+            
+            $true
+        } finally {
+            if ($proc -and -not $proc.HasExited) {
+                try { $proc.Kill(); $proc.WaitForExit(2000) } catch {}
+            }
+            if (Test-Path $tempProfile) {
+                Remove-Item -Path $tempProfile -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
-        $dbFound
     }
 } else {
     Record-TestResult -Name "Live desktop execution initializes SQLite DB with migrations" -Status "SKIPPED" -Details "multinet-cybershield-ai.exe not found in build outputs"
@@ -239,10 +301,12 @@ Assert-Runtime "Named Pipe client handles offline service gracefully without cra
         $graceful = $true
     } catch [System.TimeoutException] {
         $graceful = $true
+    } catch [System.IO.FileNotFoundException] {
+        $graceful = $true
     } catch [System.IO.IOException] {
         $graceful = $true
     } catch {
-        $graceful = $true
+        return "Unexpected offline pipe exception ($($_.Exception.GetType().FullName)): $($_.Exception.Message)"
     } finally {
         $pipeClient.Dispose()
     }
@@ -272,8 +336,16 @@ Save-Results
 
 if ($Failed -gt 0) {
     exit 1
-} elseif ($Blocked -gt 0) {
-    if ($AllowSkip) { exit 0 } else { exit 2 }
+} elseif ($Blocked -gt 0 -or $Skipped -gt 0) {
+    if ($Strict) {
+        Write-Host "[ERROR] Strict mode active: Skipped ($Skipped) or Blocked ($Blocked) tests cause failure." -ForegroundColor Red
+        exit 1
+    }
+    if ($Blocked -gt 0) {
+        if ($AllowSkip) { exit 0 } else { exit 2 }
+    } else {
+        exit 0
+    }
 } else {
     exit 0
 }

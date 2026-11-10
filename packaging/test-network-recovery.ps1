@@ -1,9 +1,10 @@
 # MultiNet CyberShield AI - Network Recovery & Runtime Diagnostic Verification
-# Milestone: NM-07.1.1 (Controlled Beta Runtime Qualification)
+# Milestone: NM-07.1.2 (Network Recovery Reliability & Route Cleanup Hardening)
 # Non-destructive test harness for network adapter baseline capture, recovery verification, and state validation
 param (
     [string]$OutputDir = "$PSScriptRoot\output\network-diagnostics",
-    [switch]$AllowSkip
+    [switch]$AllowSkip,
+    [switch]$Strict = ($env:CI -eq 'true')
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,7 +13,8 @@ $RepoRoot = Resolve-Path "$ScriptDir\.."
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "MultiNet CyberShield AI - Network Recovery & State Harness" -ForegroundColor Cyan
-Write-Host "Milestone: NM-07.1.1 (Real Disaster Recovery & State Drift)" -ForegroundColor Cyan
+Write-Host "Milestone: NM-07.1.2 (Safe Disaster Recovery & Orphan Purge)" -ForegroundColor Cyan
+Write-Host "Strict Mode Active: $Strict" -ForegroundColor $(if ($Strict) { "Yellow" } else { "DarkGray" })
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
@@ -54,11 +56,24 @@ function Record-TestResult {
 function Save-Results {
     $SuiteStopwatch.Stop()
     $total = $script:Passed + $script:Failed + $script:Skipped + $script:Blocked + $script:NotTested
-    $verdict = if ($script:Failed -gt 0) { "FAIL" } elseif ($script:Blocked -gt 0) { "BLOCKED" } elseif ($script:Passed -gt 0) { "PASS" } else { "SKIPPED" }
+    
+    # In strict mode, any skipped, blocked or failed test causes overall suite failure
+    $verdict = if ($script:Failed -gt 0) {
+        "FAIL"
+    } elseif ($Strict -and ($script:Skipped -gt 0 -or $script:Blocked -gt 0 -or $script:NotTested -gt 0)) {
+        "FAIL"
+    } elseif ($script:Blocked -gt 0) {
+        "BLOCKED"
+    } elseif ($script:Passed -gt 0) {
+        "PASS"
+    } else {
+        "SKIPPED"
+    }
     
     $report = [ordered]@{
         "suite"     = "Network Recovery & State Diagnostics"
         "timestamp" = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        "strict"    = $Strict
         "summary"   = [ordered]@{
             "total"            = $total
             "passed"           = $script:Passed
@@ -106,6 +121,9 @@ function Assert-Check {
     }
 }
 
+$isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+Write-Host "Runner Elevated Status: $isElevated" -ForegroundColor $(if ($isElevated) { "Green" } else { "Yellow" })
+
 # -----------------------------------------------------------------------------
 # 1. Capture Baseline Physical Network Adapters
 # -----------------------------------------------------------------------------
@@ -136,14 +154,13 @@ Assert-Check "Successfully queried IPv4 network interfaces" {
 # -----------------------------------------------------------------------------
 Write-Host "`n--- Step 3: Capture Routing Table State ---" -ForegroundColor Yellow
 
-$activeRoutes = Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object DestinationPrefix, NextHop, RouteMetric, InterfaceIndex, InterfaceAlias
-$defaultGateway = $activeRoutes | Where-Object { $_.DestinationPrefix -eq "0.0.0.0/0" }
+$preRoutes = Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object DestinationPrefix, NextHop, RouteMetric, InterfaceIndex, InterfaceAlias
+$defaultGateway = $preRoutes | Where-Object { $_.DestinationPrefix -eq "0.0.0.0/0" }
 Assert-Check "Active default gateway route exists (0.0.0.0/0)" {
     $defaultGateway -ne $null
 }
 
-# Check for lingering orphaned capture routes from previous crashes
-$captureRoutes = $activeRoutes | Where-Object { $_.DestinationPrefix -in @("0.0.0.0/1", "128.0.0.0/1") }
+$captureRoutes = $preRoutes | Where-Object { $_.DestinationPrefix -in @("0.0.0.0/1", "128.0.0.0/1") }
 Assert-Check "No lingering orphaned Wintun capture routes active before test" {
     $captureRoutes.Count -eq 0
 }
@@ -160,9 +177,9 @@ $BaselineSnapshot | ConvertTo-Json -Depth 4 | Set-Content -Path $BaselineFile -E
 Write-Host "[OK] Recorded baseline snapshot to $BaselineFile" -ForegroundColor Green
 
 # -----------------------------------------------------------------------------
-# 4. Disaster Recovery Execution Test (P2)
+# 4. Disaster Recovery Execution & Live Interface Query Verification (P0)
 # -----------------------------------------------------------------------------
-Write-Host "`n--- Step 4: Validate Live Disaster Recovery Execution ---" -ForegroundColor Yellow
+Write-Host "`n--- Step 4: Validate Live Disaster Recovery Execution & Interface State ---" -ForegroundColor Yellow
 
 $serviceCandidates = @(
     (Join-Path $RepoRoot "services\net-merge\net-merge-service.exe"),
@@ -173,11 +190,21 @@ $serviceCandidates = @(
 $serviceExe = $serviceCandidates | Where-Object { (Test-Path $_) -and ((Get-Item $_).Length -gt 1000000) } | Select-Object -First 1
 
 if ($serviceExe) {
+    # Select an existing interface to verify real state restoration
+    $targetIface = Get-NetIPInterface -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -match "Wi-Fi|Ethernet|Loopback" -or $_.InterfaceIndex -eq 1 } | Select-Object -First 1
+    if (-not $targetIface) {
+        $targetIface = Get-NetIPInterface -AddressFamily IPv4 | Select-Object -First 1
+    }
+    
+    $idx = $targetIface.InterfaceIndex
+    $initialWeakHost = $targetIface.WeakHostSend.ToString().ToLower()
+    $initialForwarding = $targetIface.Forwarding.ToString().ToLower()
+    
     $tempRecoveryFile = Join-Path ([System.IO.Path]::GetTempPath()) "net-merge-service-weakhost.txt"
-    $simulatedState = "IPv4 1 disabled disabled"
+    $simulatedState = "IPv4 $idx $initialWeakHost $initialForwarding"
     Set-Content -Path $tempRecoveryFile -Value $simulatedState -Encoding utf8
 
-    Assert-Check "Crash state file staged: net-merge-service-weakhost.txt" {
+    Assert-Check "Crash state file staged with live interface parameters ($idx)" {
         Test-Path $tempRecoveryFile
     }
 
@@ -199,21 +226,105 @@ if ($serviceExe) {
         Assert-Check "Disaster recovery consumed and cleaned up crash state file" {
             -not (Test-Path $tempRecoveryFile)
         }
+        
+        Assert-Check "Verify weak-host and forwarding settings confirmed via Windows interface query" {
+            $verifiedIface = Get-NetIPInterface -InterfaceIndex $idx -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            if (-not $verifiedIface) { return "Could not re-query interface $idx" }
+            $whMatches = ($verifiedIface.WeakHostSend.ToString().ToLower() -eq $initialWeakHost)
+            $fwdMatches = ($verifiedIface.Forwarding.ToString().ToLower() -eq $initialForwarding)
+            $whMatches -and $fwdMatches
+        }
     } else {
-        # Clean up staged file if recovery execution did not run
         Remove-Item -Path $tempRecoveryFile -Force -ErrorAction SilentlyContinue
         Record-TestResult -Name "Disaster recovery consumed and cleaned up crash state file" -Status "BLOCKED" -Details "Preceding recovery execution step was blocked or failed"
+        Record-TestResult -Name "Verify weak-host and forwarding settings confirmed via Windows interface query" -Status "BLOCKED" -Details "Preceding recovery execution step was blocked or failed"
     }
+
+    # 4b. Verify safe failure & state retention on malformed input
+    Write-Host "`n--- Step 4b: Verify Failure Safety & Atomic State Retention ---" -ForegroundColor Yellow
+    $badRecoveryFile = Join-Path ([System.IO.Path]::GetTempPath()) "net-merge-service-weakhost.txt"
+    $badContent = "malformed_token_invalid_format"
+    Set-Content -Path $badRecoveryFile -Value $badContent -Encoding utf8
+    
+    try {
+        Assert-Check "Recovery exits non-zero on malformed crash records" {
+            $badProc = Start-Process -FilePath $serviceExe -ArgumentList "-action recover" -Wait -PassThru -NoNewWindow
+            Write-Host " (Exit code: $($badProc.ExitCode)) " -NoNewline
+            # Service MUST fail safely and exit non-zero
+            $badProc.ExitCode -ne 0
+        }
+        
+        Assert-Check "Failed state records are retained for retry" {
+            (Test-Path $badRecoveryFile) -and ((Get-Content $badRecoveryFile -Raw) -match "malformed_token_invalid_format")
+        }
+    } finally {
+        Remove-Item -Path $badRecoveryFile -Force -ErrorAction SilentlyContinue
+    }
+
 } else {
-    Record-TestResult -Name "Crash state file staged: net-merge-service-weakhost.txt" -Status "SKIPPED" -Details "net-merge-service.exe not found in build outputs"
+    Record-TestResult -Name "Crash state file staged with live interface parameters" -Status "SKIPPED" -Details "net-merge-service.exe not found in build outputs"
     Record-TestResult -Name "Execute live disaster recovery scan via service binary" -Status "SKIPPED" -Details "net-merge-service.exe not found in build outputs"
     Record-TestResult -Name "Disaster recovery consumed and cleaned up crash state file" -Status "SKIPPED" -Details "net-merge-service.exe not found in build outputs"
+    Record-TestResult -Name "Verify weak-host and forwarding settings confirmed via Windows interface query" -Status "SKIPPED" -Details "net-merge-service.exe not found in build outputs"
+    Record-TestResult -Name "Recovery exits non-zero on malformed crash records" -Status "SKIPPED" -Details "net-merge-service.exe not found in build outputs"
+    Record-TestResult -Name "Failed state records are retained for retry" -Status "SKIPPED" -Details "net-merge-service.exe not found in build outputs"
 }
 
 # -----------------------------------------------------------------------------
-# 5. Service Disaster Recovery Code Integrity
+# 5. Controlled Orphaned-Route Cleanup Test (P0)
 # -----------------------------------------------------------------------------
-Write-Host "`n--- Step 5: Verify Service Disaster Recovery Handler Implementation ---" -ForegroundColor Yellow
+Write-Host "`n--- Step 5: Controlled Orphaned-Route Cleanup Test ---" -ForegroundColor Yellow
+
+if ($isElevated -and $serviceExe) {
+    # Safely stage controlled capture test routes pointing to local loopback (does not affect physical default route 0.0.0.0/0)
+    $loopbackIp = "127.0.0.1"
+    
+    try {
+        Write-Host "Staging controlled test capture routes (0.0.0.0/1 and 128.0.0.0/1)..." -ForegroundColor Cyan
+        & route add 0.0.0.0 mask 128.0.0.0 $loopbackIp metric 9999 | Out-Null
+        & route add 128.0.0.0 mask 128.0.0.0 $loopbackIp metric 9999 | Out-Null
+        
+        Assert-Check "Controlled test capture routes staged in routing table" {
+            $routesNow = Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            $hasRoute1 = ($routesNow | Where-Object { $_.DestinationPrefix -eq "0.0.0.0/1" }) -ne $null
+            $hasRoute2 = ($routesNow | Where-Object { $_.DestinationPrefix -eq "128.0.0.0/1" }) -ne $null
+            $hasRoute1 -and $hasRoute2
+        }
+        
+        Assert-Check "Execute disaster recovery to purge orphaned capture routes" {
+            $purgeProc = Start-Process -FilePath $serviceExe -ArgumentList "-action recover" -Wait -PassThru -NoNewWindow
+            Write-Host " (Exit code: $($purgeProc.ExitCode)) " -NoNewline
+            $purgeProc.ExitCode -eq 0
+        }
+        
+        Assert-Check "Controlled test capture routes successfully purged" {
+            $routesAfter = Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            $hasRoute1 = ($routesAfter | Where-Object { $_.DestinationPrefix -eq "0.0.0.0/1" }) -ne $null
+            $hasRoute2 = ($routesAfter | Where-Object { $_.DestinationPrefix -eq "128.0.0.0/1" }) -ne $null
+            (-not $hasRoute1) -and (-not $hasRoute2)
+        }
+        
+        Assert-Check "Physical default gateway (0.0.0.0/0) remained intact and unchanged" {
+            $currentDefault = Get-NetRoute -DestinationPrefix "0.0.0.0/0" -AddressFamily IPv4 -ErrorAction SilentlyContinue
+            ($currentDefault -ne $null) -and ($currentDefault.NextHop -eq $defaultGateway.NextHop)
+        }
+    } finally {
+        # Guaranteed cleanup: Always attempt route delete in finally block
+        & route delete 0.0.0.0 mask 128.0.0.0 2>$null | Out-Null
+        & route delete 128.0.0.0 mask 128.0.0.0 2>$null | Out-Null
+    }
+} else {
+    $skipReason = if (-not $isElevated) { "Requires Administrator privileges to add test routes" } else { "net-merge-service.exe not found" }
+    Record-TestResult -Name "Controlled test capture routes staged in routing table" -Status "SKIPPED" -Details $skipReason
+    Record-TestResult -Name "Execute disaster recovery to purge orphaned capture routes" -Status "SKIPPED" -Details $skipReason
+    Record-TestResult -Name "Controlled test capture routes successfully purged" -Status "SKIPPED" -Details $skipReason
+    Record-TestResult -Name "Physical default gateway (0.0.0.0/0) remained intact and unchanged" -Status "SKIPPED" -Details $skipReason
+}
+
+# -----------------------------------------------------------------------------
+# 6. Service Disaster Recovery Code Integrity
+# -----------------------------------------------------------------------------
+Write-Host "`n--- Step 6: Verify Service Disaster Recovery Handler Implementation ---" -ForegroundColor Yellow
 
 $disasterSource = Join-Path $RepoRoot "services\net-merge\internal\svcrunner\disaster_windows.go"
 Assert-Check "disaster_windows.go exists and implements RunDisasterRecovery" {
@@ -223,9 +334,9 @@ Assert-Check "disaster_windows.go exists and implements RunDisasterRecovery" {
 }
 
 # -----------------------------------------------------------------------------
-# 6. Post-Test State Drift Check
+# 7. Post-Test State Drift Check
 # -----------------------------------------------------------------------------
-Write-Host "`n--- Step 6: Post-Test State Drift Verification ---" -ForegroundColor Yellow
+Write-Host "`n--- Step 7: Post-Test State Drift Verification ---" -ForegroundColor Yellow
 
 $postRoutes = Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.DestinationPrefix -in @("0.0.0.0/1", "128.0.0.0/1") }
 Assert-Check "Zero route drift: no orphaned capture routes introduced" {
@@ -236,12 +347,15 @@ Assert-Check "Zero route drift: no orphaned capture routes introduced" {
 # Summary & Output
 # -----------------------------------------------------------------------------
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host "Network Recovery Summary: Passed = $Passed, Failed = $Failed, Skipped = $Skipped, Blocked = $Blocked" -ForegroundColor $(if ($Failed -eq 0 -and $Blocked -eq 0) { "Green" } elseif ($Blocked -gt 0 -and $Failed -eq 0) { "DarkYellow" } else { "Red" })
+Write-Host "Network Recovery Summary: Passed = $Passed, Failed = $Failed, Skipped = $Skipped, Blocked = $Blocked" -ForegroundColor $(if ($Failed -eq 0 -and $Blocked -eq 0 -and (-not $Strict -or $Skipped -eq 0)) { "Green" } elseif ($Blocked -gt 0 -and $Failed -eq 0) { "DarkYellow" } else { "Red" })
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 Save-Results
 
 if ($Failed -gt 0) {
+    exit 1
+} elseif ($Strict -and ($Skipped -gt 0 -or $Blocked -gt 0)) {
+    Write-Host "[ERROR] Strict qualification failed: Skipped/Blocked tests present in CI environment" -ForegroundColor Red
     exit 1
 } elseif ($Blocked -gt 0) {
     if ($AllowSkip) { exit 0 } else { exit 2 }

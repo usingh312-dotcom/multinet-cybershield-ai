@@ -195,6 +195,12 @@ jobs:
         run: |
           .\packaging\build-installer.ps1
 
+      - name: Install Python Schema Validation Prerequisites
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install jsonschema
+
       - name: Generate Software Bill of Materials (SBOM)
         shell: pwsh
         run: |
@@ -285,12 +291,19 @@ jobs:
         run: |
           .\packaging\test-installer-lifecycle.ps1
 
+      - name: Aggregate Qualification Test Results (Strict Gate)
+        if: always()
+        shell: pwsh
+        run: |
+          .\packaging\aggregate-test-results.ps1 -Strict
+
       - name: Upload Installer Lifecycle Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: installer-lifecycle-logs
           path: |
+            packaging/output/final-qualification-report.json
             packaging/output/lifecycle-logs/*
             packaging/output/desktop-runtime-logs/*
             packaging/output/network-diagnostics/*

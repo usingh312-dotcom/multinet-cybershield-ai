@@ -43,3 +43,8 @@ CREATE TABLE IF NOT EXISTS speed_test_results (
 
 CREATE INDEX IF NOT EXISTS idx_speed_test_results_completed_at
     ON speed_test_results (completed_at);
+
+-- Compatibility views for canonical query models
+CREATE VIEW IF NOT EXISTS audit_events AS SELECT * FROM audit_logs;
+CREATE VIEW IF NOT EXISTS traffic_snapshots AS SELECT * FROM traffic_samples;
+

@@ -89,9 +89,12 @@ func main() {
 			}
 		case "recover":
 			err = svcrunner.RunDisasterRecovery()
-			if err == nil {
-				fmt.Println("Disaster recovery completed successfully.")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Disaster recovery failed: %v\n", err)
+				os.Exit(1)
 			}
+			fmt.Println("Disaster recovery completed successfully.")
+			return
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown action: %s (supported: install, uninstall, start, stop, status, recover)\n", *action)
 			os.Exit(1)

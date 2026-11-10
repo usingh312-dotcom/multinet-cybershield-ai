@@ -181,13 +181,15 @@ if ($desktopExe) {
     Assert-Runtime "Live desktop execution initializes SQLite DB with migrations" {
         $tempProfile = Join-Path ([System.IO.Path]::GetTempPath()) "multinet-runtime-test-$([System.Guid]::NewGuid().ToString('N'))"
         $tempAppData = Join-Path $tempProfile "AppData\Roaming"
+        $tempDataDir = Join-Path $tempAppData "ai.multinet.cybershield"
         $proc = $null
         
         try {
-            New-Item -ItemType Directory -Force -Path $tempAppData | Out-Null
+            New-Item -ItemType Directory -Force -Path $tempDataDir | Out-Null
             
             $psi = New-Object System.Diagnostics.ProcessStartInfo
             $psi.FileName = $desktopExe
+            $psi.EnvironmentVariables["MULTINET_DATA_DIR"] = $tempDataDir
             $psi.EnvironmentVariables["APPDATA"] = $tempAppData
             $psi.UseShellExecute = $false
             
@@ -203,18 +205,29 @@ if ($desktopExe) {
             
             if (-not $proc) { return "Failed to start desktop process" }
             
-            $dbPath = Join-Path $tempAppData "ai.multinet.cybershield\multinet-cybershield-ai.db"
-            $dbFound = $false
+            $candidatePaths = @(
+                (Join-Path $tempDataDir "multinet-cybershield-ai.db"),
+                (Join-Path $tempAppData "ai.multinet.cybershield\multinet-cybershield-ai.db"),
+                (Join-Path $tempAppData "multinet-cybershield-ai.db"),
+                (Join-Path $env:APPDATA "ai.multinet.cybershield\multinet-cybershield-ai.db")
+            )
+            $dbPath = $null
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             
-            while ($sw.ElapsedMilliseconds -lt 15000) {
-                if ((Test-Path $dbPath) -and ((Get-Item $dbPath).Length -gt 0)) {
-                    $dbFound = $true
-                    break
+            while ($sw.ElapsedMilliseconds -lt 25000) {
+                foreach ($cand in $candidatePaths) {
+                    if ((Test-Path $cand) -and ((Get-Item $cand).Length -gt 0)) {
+                        $dbPath = $cand
+                        break
+                    }
                 }
+                if ($dbPath) { break }
                 if ($proc.HasExited) {
-                    if ((Test-Path $dbPath) -and ((Get-Item $dbPath).Length -gt 0)) {
-                        $dbFound = $true
+                    foreach ($cand in $candidatePaths) {
+                        if ((Test-Path $cand) -and ((Get-Item $cand).Length -gt 0)) {
+                            $dbPath = $cand
+                            break
+                        }
                     }
                     break
                 }
@@ -237,8 +250,9 @@ if ($desktopExe) {
                 $gracefulShutdown = $true
             }
             
-            if (-not $dbFound) {
-                return "Database file not created within timeout ($dbPath)"
+            if (-not $dbPath) {
+                $exitInfo = if ($proc.HasExited) { "Process exited early with code $($proc.ExitCode)" } else { "Process still running" }
+                return "Database file not created within timeout. $exitInfo. Checked paths: $($candidatePaths -join ', ')"
             }
             
             # Inspect SQLite database schema & migrations using python

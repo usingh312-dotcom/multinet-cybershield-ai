@@ -87,3 +87,4 @@ The following machine-readable supply chain artifacts were generated in `packagi
 ## 6. Supply Chain Audit Conclusion
 
 The Software Bill of Materials generation pipeline is fully compliant with the CycloneDX v1.5 standard. The dependency inventory is complete, the graph structure has zero dangling nodes, and all output formats pass automated schema and graph integrity gates.
+

@@ -124,3 +124,4 @@ if __name__ == "__main__":
         schema_file = Path(sys.argv[2])
 
     validate_sbom(sbom_file, schema_file)
+

@@ -7,6 +7,7 @@ use db::{DatabaseState, SqliteAuditSink};
 use security_policy::HumanApprovalPolicy;
 use serde::Serialize;
 use sqlx::Row;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Manager;
 
@@ -200,7 +201,9 @@ fn main() {
             diagnostics::get_speed_test_history
         ])
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
+            let data_dir = std::env::var_os("MULTINET_DATA_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from(".")));
             let database_state = tauri::async_runtime::block_on(db::initialize_database(&data_dir))?;
             let policy = HumanApprovalPolicy::new(SqliteAuditSink::new(database_state.pool.clone()));
             let diagnostics = Arc::new(diagnostics::DiagnosticsState::new());

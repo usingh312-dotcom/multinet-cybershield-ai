@@ -33,7 +33,7 @@ func TestDisasterRecoveryCompleteSuccess(t *testing.T) {
 	statePath := setupTestRecoveryFile(t, stateContent)
 
 	svcrunner.SetCommandExecutorForTesting(func(name string, args ...string) ([]byte, error) {
-		if name == "netsh" && len(args) > 4 && args[0] == "interface" && args[3] == "set" {
+		if name == "netsh" && len(args) > 4 && args[0] == "interface" && args[2] == "set" {
 			return []byte("Ok.\n"), nil
 		}
 		if name == "netsh" && len(args) > 3 && args[3] == "route" {
@@ -58,7 +58,7 @@ func TestDisasterRecoveryPartialSuccess(t *testing.T) {
 	statePath := setupTestRecoveryFile(t, stateContent)
 
 	svcrunner.SetCommandExecutorForTesting(func(name string, args ...string) ([]byte, error) {
-		if name == "netsh" && len(args) > 4 && args[0] == "interface" && args[3] == "set" {
+		if name == "netsh" && len(args) > 4 && args[0] == "interface" && args[2] == "set" {
 			for _, a := range args {
 				if a == "interface=10" {
 					return []byte("Ok.\n"), nil
@@ -128,7 +128,7 @@ func TestDisasterRecoveryNetshFailure(t *testing.T) {
 	statePath := setupTestRecoveryFile(t, stateContent)
 
 	svcrunner.SetCommandExecutorForTesting(func(name string, args ...string) ([]byte, error) {
-		if name == "netsh" && len(args) > 4 && args[3] == "set" {
+		if name == "netsh" && len(args) > 4 && args[0] == "interface" && args[2] == "set" {
 			return []byte("Element not found.\n"), errors.New("exit status 1")
 		}
 		return []byte(""), nil
@@ -181,7 +181,7 @@ func TestDisasterRecoverySuccessfulRetry(t *testing.T) {
 	// Step 1: Interface 20 fails
 	step := 1
 	svcrunner.SetCommandExecutorForTesting(func(name string, args ...string) ([]byte, error) {
-		if name == "netsh" && len(args) > 4 && args[3] == "set" {
+		if name == "netsh" && len(args) > 4 && args[0] == "interface" && args[2] == "set" {
 			for _, a := range args {
 				if a == "interface=10" {
 					return []byte("Ok.\n"), nil

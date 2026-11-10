@@ -118,3 +118,4 @@ It downloads both genuine binary artifacts:
 2. `desktop-app` -> staged to `target/release/multinet-cybershield-ai.exe`
 
 Both binaries are validated with `Assert-ValidPEImage` before inclusion in the WiX MSI installer and distribution archive.
+

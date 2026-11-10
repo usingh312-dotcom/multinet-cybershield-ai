@@ -72,3 +72,4 @@ The generated SBOM in `packaging/output/sbom.json` was generated with `generate-
 | `TROUBLESHOOTING.md` | Documentation | > 6 KB | N/A | N/A | Yes |
 
 All verification criteria passed with 0 errors.
+

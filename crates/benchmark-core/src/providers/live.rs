@@ -137,8 +137,8 @@ where
     let mut all_rtt_samples = Vec::new();
     let mut total_bytes_sent = 0u64;
     let mut total_bytes_received = 0u64;
-    let mut total_ping_samples = 0usize;
-    let mut total_ping_received = 0usize;
+    let mut total_ping_samples = 0u64;
+    let mut total_ping_received = 0u64;
     let mut ping_latencies = Vec::new();
     let mut jitter_samples = Vec::new();
 
@@ -179,8 +179,8 @@ where
                 all_rtt_samples.extend_from_slice(&report.rtt_samples);
                 total_bytes_sent += report.upload_bytes;
                 total_bytes_received += report.download_bytes;
-                total_ping_samples += report.ping_samples;
-                total_ping_received += report.ping_received;
+                total_ping_samples += report.ping_samples as u64;
+                total_ping_received += report.ping_received as u64;
                 if report.ping_ms > 0.0 {
                     ping_latencies.push(report.ping_ms);
                 }
@@ -248,9 +248,9 @@ where
             latency_ms: avg_latency,
             jitter_ms: avg_jitter,
             loss_pct,
-            packets_sent: total_ping_samples as u64,
-            packets_received: total_ping_received as u64,
-            packets_dropped: (total_ping_samples.saturating_sub(total_ping_received)) as u64,
+            packets_sent: total_ping_samples,
+            packets_received: total_ping_received,
+            packets_dropped: total_ping_samples.saturating_sub(total_ping_received),
             packets_reordered: 0,
             bytes_sent: total_bytes_sent,
             bytes_received: total_bytes_received,

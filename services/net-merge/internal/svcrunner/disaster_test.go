@@ -2,7 +2,6 @@ package svcrunner_test
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,3 +221,4 @@ func TestDisasterRecoverySuccessfulRetry(t *testing.T) {
 		t.Fatalf("expected state file to be deleted after successful retry")
 	}
 }
+

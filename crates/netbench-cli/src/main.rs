@@ -13,7 +13,7 @@ use benchmark_core::execute_deterministic_benchmark;
 use benchmark_core::models::{
     BenchmarkRun, EvidenceTier, RunTimestamps, SystemMetadata, TestStatus,
 };
-use benchmark_core::providers::live::run_live_baseline;
+use benchmark_core::providers::live::{run_live_baseline_series, BaselineSeriesConfig};
 use benchmark_core::reports;
 use speed_test::is_loopback_url_str;
 use std::env;
@@ -24,6 +24,9 @@ use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
+
+mod interface_validator;
+use interface_validator::validate_interface_and_ip;
 
 fn print_usage() {
     eprintln!(
@@ -146,7 +149,9 @@ fn handle_run(args: &[String]) -> ExitCode {
 
 async fn handle_baseline(args: &[String]) -> ExitCode {
     let mut server_url = String::new();
-    let mut interface_ip: Option<IpAddr> = None;
+    let mut raw_interface_ip: Option<String> = None;
+    let mut interface_name: Option<String> = None;
+    let mut sample_count: usize = 5; // Default 5 samples required for competitor comparison qualification
     let mut live_opt_in = false;
     let mut allow_self_signed = false;
     let mut output_dir = PathBuf::from("artifacts/benchmark/runs");
@@ -158,8 +163,29 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
                 server_url = args[i + 1].clone();
                 i += 2;
             }
-            "--interface-local-ip" if i + 1 < args.len() => {
-                interface_ip = args[i + 1].parse().ok();
+            "--interface" if i + 1 < args.len() => {
+                interface_name = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--interface-local-ip" => {
+                if i + 1 < args.len() {
+                    raw_interface_ip = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    eprintln!("[netbench-cli] ERROR: '--interface-local-ip' requires a valid IP address argument.");
+                    return ExitCode::from(1);
+                }
+            }
+            "--samples" if i + 1 < args.len() => {
+                match args[i + 1].parse::<usize>() {
+                    Ok(n) if (1..=50).contains(&n) => {
+                        sample_count = n;
+                    }
+                    _ => {
+                        eprintln!("[netbench-cli] ERROR: '--samples' must be an integer between 1 and 50.");
+                        return ExitCode::from(1);
+                    }
+                }
                 i += 2;
             }
             "--enable-live-network-tests" => {
@@ -194,9 +220,29 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
         return ExitCode::from(1);
     }
 
+    // Fail-closed interface IP validation
+    let discovered_ifaces = interface_discovery::discover_interfaces().unwrap_or_default();
+    let interface_ip = match validate_interface_and_ip(
+        raw_interface_ip.as_deref(),
+        interface_name.as_deref(),
+        &discovered_ifaces,
+        true,
+    ) {
+        Ok(ip) => ip,
+        Err(e) => {
+            eprintln!("[netbench-cli] ERROR: Interface validation failed: {}", e);
+            eprintln!("[netbench-cli] Refusing to fall back to default route when an explicit interface IP was specified.");
+            return ExitCode::from(1);
+        }
+    };
+
     println!(
         "[netbench-cli] Live baseline test starting against: {}",
         server_url
+    );
+    println!(
+        "[netbench-cli] Requested trials: {} independent sample(s)",
+        sample_count
     );
     if let Some(ip) = interface_ip {
         println!("[netbench-cli] Binding to local interface IP: {}", ip);
@@ -210,8 +256,13 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
         .unwrap()
         .to_string();
 
-    let result =
-        run_live_baseline(server_url.clone(), interface_ip, allow_self_signed, cancel).await;
+    let config = BaselineSeriesConfig {
+        server_url: server_url.clone(),
+        interface_local_ip: interface_ip,
+        allow_loopback_cert: allow_self_signed,
+        sample_count,
+    };
+    let result = run_live_baseline_series(config, cancel).await;
     let elapsed = start_instant.elapsed();
     let end_utc = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
@@ -236,6 +287,7 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
     run.server_url = Some(server_url);
     run.test_direction = Some("download".to_string());
     run.protocol = Some("https".to_string());
+    run.duration_secs = Some(elapsed.as_secs().max(1));
     if let Some(ip) = interface_ip {
         run.active_wans = Some(vec![ip.to_string()]);
     }
@@ -269,11 +321,18 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
         run.tests[0].status
     );
     println!(
+        "[netbench-cli] Captured samples: {} trial(s)",
+        run.tests[0].raw_samples.len()
+    );
+    println!(
         "[netbench-cli] All 5 artifacts written to: {}",
         run_dir.display()
     );
 
     if run.tests[0].status != TestStatus::Pass {
+        if let Some(ref r) = run.tests[0].reason {
+            eprintln!("[netbench-cli] Failure reason: {}", r);
+        }
         ExitCode::from(2)
     } else {
         ExitCode::SUCCESS

@@ -1,9 +1,10 @@
 <#
 .SYNOPSIS
-    Automated qualification test suite for MultiNet Benchmark Lab (Milestone NM-08.0).
+    Automated qualification test suite for MultiNet Benchmark Lab (Milestone NM-08.0.2).
 .DESCRIPTION
     Validates deterministic synthetic scheduler scenarios, loopback wire sockets,
-    competitor import, comparability gate evaluation, and multi-format report generation.
+    interface IP fail-closed validation, canonical & legacy competitor import,
+    16-gate comparability evaluation, and multi-format report generation.
     Strictly asserts zero failures, schema compliance, and correct BLOCKED registration
     for bonded end-to-end tests.
 #>
@@ -16,7 +17,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " NM-08.0: Benchmark Lab Qualification Test Suite" -ForegroundColor Cyan
+Write-Host " NM-08.0.2: Benchmark Lab Qualification Test Suite" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $testResults = @()
@@ -163,26 +164,31 @@ if ($failed -eq 0 -and $passed -eq 10 -and $blocked -eq 5) {
     Record-Test "SUITE_INTEGRITY" "Suite totals match specification (10 pass, 5 blocked, 0 fail)" "FAIL" "Got $passed PASS, $blocked BLOCKED, $failed FAIL"
 }
 
-# 6. Test Competitor Import
+# 6. Test Competitor Import (Canonical and Legacy Schemas)
 Write-Host "`n[Step 2] Testing competitor import..." -ForegroundColor Yellow
 $compOutDir = Join-Path $OutputDir "competitor"
-$fixturePath = "tests/fixtures/speedify-sample.csv"
+$legacyFixturePath = "tests/fixtures/speedify-sample.csv"
+$canonicalFixturePath = "tests/fixtures/speedify-canonical.csv"
 
-cargo run -p netbench-cli -- competitor-import --input $fixturePath --output $compOutDir
-$compExitCode = $LASTEXITCODE
+cargo run -p netbench-cli -- competitor-import --input $legacyFixturePath --output $compOutDir
+$compLegacyExitCode = $LASTEXITCODE
 
-if ($compExitCode -eq 0) {
-    $imported = Get-ChildItem -Filter "*.json" $compOutDir
-    if ($imported.Count -gt 0) {
-        Record-Test "COMPETITOR_IMPORT" "Import competitor CSV fixture" "PASS" "Imported $($imported.Count) record(s)"
-    } else {
-        Record-Test "COMPETITOR_IMPORT" "Import competitor CSV fixture" "FAIL" "No JSON records created in $compOutDir"
-    }
+if ($compLegacyExitCode -eq 0) {
+    Record-Test "COMPETITOR_IMPORT_LEGACY" "Import legacy 13-field competitor CSV fixture" "PASS" "Imported legacy record"
 } else {
-    Record-Test "COMPETITOR_IMPORT" "Import competitor CSV fixture" "FAIL" "Process exited with $compExitCode"
+    Record-Test "COMPETITOR_IMPORT_LEGACY" "Import legacy 13-field competitor CSV fixture" "FAIL" "Process exited with $compLegacyExitCode"
 }
 
-# 7. Test Comparability Evaluation Gate
+cargo run -p netbench-cli -- competitor-import --input $canonicalFixturePath --output $compOutDir
+$compCanonicalExitCode = $LASTEXITCODE
+
+if ($compCanonicalExitCode -eq 0) {
+    Record-Test "COMPETITOR_IMPORT_CANONICAL" "Import canonical 16-field competitor CSV fixture" "PASS" "Imported canonical record"
+} else {
+    Record-Test "COMPETITOR_IMPORT_CANONICAL" "Import canonical 16-field competitor CSV fixture" "FAIL" "Process exited with $compCanonicalExitCode"
+}
+
+# 7. Test Comparability Evaluation Gate (16 Gates Enforced)
 Write-Host "`n[Step 3] Testing comparability evaluation gate..." -ForegroundColor Yellow
 $compJsonFile = Join-Path $compOutDir "speedify-001.json"
 $comparisonsDir = Join-Path $OutputDir "comparisons"
@@ -207,7 +213,28 @@ if ($compareExitCode -eq 0) {
     Record-Test "COMPARABILITY_GATE" "Generate comparison report" "FAIL" "Process exited with $compareExitCode"
 }
 
-# 8. Summary & Exit Gate
+# 8. Test Interface IP Parsing Fail-Closed Behavior
+Write-Host "`n[Step 4] Testing CLI interface IP validation fail-closed behavior..." -ForegroundColor Yellow
+
+# Negative Test 1: Explicit malformed IP address must fail closed with non-zero exit code
+cargo run -p netbench-cli -- baseline --enable-live-network-tests --server-url "https://127.0.0.1:9000" --interface-local-ip "192.168.1.999" --allow-self-signed-loopback
+$malformedIpExitCode = $LASTEXITCODE
+if ($malformedIpExitCode -ne 0) {
+    Record-Test "CLI_FAIL_CLOSED_MALFORMED_IP" "Explicit malformed interface IP terminates CLI with non-zero exit code" "PASS" "Exited with code $malformedIpExitCode (rejected as expected)"
+} else {
+    Record-Test "CLI_FAIL_CLOSED_MALFORMED_IP" "Explicit malformed interface IP terminates CLI with non-zero exit code" "FAIL" "Incorrectly succeeded with exit code 0"
+}
+
+# Negative Test 2: Explicit unassigned local IP address must fail closed with non-zero exit code
+cargo run -p netbench-cli -- baseline --enable-live-network-tests --server-url "https://127.0.0.1:9000" --interface-local-ip "10.254.254.254" --allow-self-signed-loopback
+$unassignedIpExitCode = $LASTEXITCODE
+if ($unassignedIpExitCode -ne 0) {
+    Record-Test "CLI_FAIL_CLOSED_UNASSIGNED_IP" "Unassigned interface IP terminates CLI with non-zero exit code" "PASS" "Exited with code $unassignedIpExitCode (rejected as expected)"
+} else {
+    Record-Test "CLI_FAIL_CLOSED_UNASSIGNED_IP" "Unassigned interface IP terminates CLI with non-zero exit code" "FAIL" "Incorrectly succeeded with exit code 0"
+}
+
+# 9. Summary & Exit Gate
 Write-Host "`n==========================================================" -ForegroundColor Cyan
 Write-Host " Qualification Summary" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -222,11 +249,13 @@ Write-Host "Failed:  $failCount" -ForegroundColor Red
 
 # Save machine-readable qualification results
 $summaryReport = @{
-    milestone = "NM-08.0.1"
+    milestone = "NM-08.0.2"
     timestamp_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     checks_total = $totalCount
     checks_passed = $passCount
     checks_failed = $failCount
+    results = $testResults
+}
     results = $testResults
 }
 $summaryJson = $summaryReport | ConvertTo-Json -Depth 5

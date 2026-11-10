@@ -18,4 +18,6 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 time.workspace = true
+network-core.workspace = true
+interface-discovery.workspace = true
 

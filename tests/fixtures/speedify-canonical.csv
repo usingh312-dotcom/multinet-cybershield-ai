@@ -1,0 +1,3 @@
+# Canonical 16-field competitor benchmark measurement fixture for NM-08.0.2
+record_id;product;version;date_utc;operator;os;os_version;hardware;wans;wan_baselines;mode;server;direction;protocol;duration_secs;samples
+speedify-can-001;Speedify;14.2.0;2026-11-10T10:00:00Z;QA;windows;11;x86_64;eth0,wlan0;100.0,50.0;Speed;https://speedtest.example.com;download;TCP;60;120.5,124.2,122.8,125.1,123.9

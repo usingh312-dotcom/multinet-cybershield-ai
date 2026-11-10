@@ -113,10 +113,15 @@ impl<A: AuditSink + Send + Sync> SecurityPolicy for HumanApprovalPolicy<A> {
         approval: &Approval,
     ) -> Result<ActionResult, PolicyError> {
         if approval.request_id != request.id {
-            return Err(PolicyError::Denied("approval does not match request".into()));
+            return Err(PolicyError::Denied(
+                "approval does not match request".into(),
+            ));
         }
         self.audit
-            .record(AuditEvent::action_approved(request.id, &approval.approved_by))
+            .record(AuditEvent::action_approved(
+                request.id,
+                &approval.approved_by,
+            ))
             .await
             .map_err(|e| PolicyError::Audit(e.to_string()))?;
         Err(PolicyError::Denied(

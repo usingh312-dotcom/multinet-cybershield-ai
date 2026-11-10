@@ -99,22 +99,68 @@ if ($resultsJson.seed -eq 42) {
     Record-Test "RUN_SEED" "Validate deterministic seed" "FAIL" "Got $($resultsJson.seed)"
 }
 
+# Individual test assertions: verify every expected test ID exists and matches expected status
+$expectedPassTests = @(
+    "synth_sched_single_path",
+    "synth_sched_dual_equal",
+    "synth_sched_tri_asymmetric",
+    "synth_sched_degraded_shedding",
+    "synth_sched_loss_and_recovery",
+    "synth_sched_all_unavailable",
+    "synth_sched_mtu_exclusion",
+    "synth_sched_anomaly_handling",
+    "synth_sched_zero_capacity",
+    "loopback_udp_framing"
+)
+
+foreach ($tid in $expectedPassTests) {
+    $tObj = $resultsJson.tests | Where-Object { $_.test_id -eq $tid }
+    if ($null -ne $tObj) {
+        if ($tObj.status -eq "PASS") {
+            Record-Test "TEST_ID_$tid" "Test ID $tid executed and passed" "PASS" "Status: PASS"
+        } else {
+            Record-Test "TEST_ID_$tid" "Test ID $tid executed and passed" "FAIL" "Expected PASS, got $($tObj.status): $($tObj.reason)"
+        }
+    } else {
+        Record-Test "TEST_ID_$tid" "Test ID $tid executed and passed" "FAIL" "Test ID not found in results"
+    }
+}
+
+$expectedBlockedTests = @(
+    "bonded_e2e_2wan_single_flow",
+    "bonded_e2e_3wan_asymmetric",
+    "bonded_e2e_relay_reassembly",
+    "bonded_e2e_single_flow_failover",
+    "bonded_e2e_return_traffic"
+)
+
+foreach ($tid in $expectedBlockedTests) {
+    $tObj = $resultsJson.tests | Where-Object { $_.test_id -eq $tid }
+    if ($null -ne $tObj) {
+        if ($tObj.status -eq "BLOCKED") {
+            if (-not [string]::IsNullOrWhiteSpace($tObj.reason) -and $tObj.reason.StartsWith("BLOCKED:")) {
+                Record-Test "TEST_ID_$tid" "Test ID $tid registered as BLOCKED with architectural rationale" "PASS" "Rationale verified"
+            } else {
+                Record-Test "TEST_ID_$tid" "Test ID $tid registered as BLOCKED with architectural rationale" "FAIL" "Empty or invalid rationale"
+            }
+        } else {
+            Record-Test "TEST_ID_$tid" "Test ID $tid registered as BLOCKED with architectural rationale" "FAIL" "Expected BLOCKED, got $($tObj.status)"
+        }
+    } else {
+        Record-Test "TEST_ID_$tid" "Test ID $tid registered as BLOCKED with architectural rationale" "FAIL" "Test ID not found in results"
+    }
+}
+
 # Verify total tests and counts
 $totalTests = $resultsJson.tests.Count
 $passed = ($resultsJson.tests | Where-Object { $_.status -eq "PASS" }).Count
 $blocked = ($resultsJson.tests | Where-Object { $_.status -eq "BLOCKED" }).Count
 $failed = ($resultsJson.tests | Where-Object { $_.status -eq "FAIL" }).Count
 
-if ($failed -eq 0) {
-    Record-Test "ZERO_FAILURES" "Zero test failures in deterministic suite" "PASS" "Failed: 0"
+if ($failed -eq 0 -and $passed -eq 10 -and $blocked -eq 5) {
+    Record-Test "SUITE_INTEGRITY" "Suite totals match specification (10 pass, 5 blocked, 0 fail)" "PASS" "Total: $totalTests (10 PASS, 5 BLOCKED, 0 FAIL)"
 } else {
-    Record-Test "ZERO_FAILURES" "Zero test failures in deterministic suite" "FAIL" "Failed: $failed"
-}
-
-if ($blocked -ge 5) {
-    Record-Test "BONDED_BLOCKED" "Bonded E2E tests registered as BLOCKED with rationale" "PASS" "Blocked count: $blocked"
-} else {
-    Record-Test "BONDED_BLOCKED" "Bonded E2E tests registered as BLOCKED with rationale" "FAIL" "Expected >= 5 blocked, got $blocked"
+    Record-Test "SUITE_INTEGRITY" "Suite totals match specification (10 pass, 5 blocked, 0 fail)" "FAIL" "Got $passed PASS, $blocked BLOCKED, $failed FAIL"
 }
 
 # 6. Test Competitor Import
@@ -176,7 +222,7 @@ Write-Host "Failed:  $failCount" -ForegroundColor Red
 
 # Save machine-readable qualification results
 $summaryReport = @{
-    milestone = "NM-08.0"
+    milestone = "NM-08.0.1"
     timestamp_utc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     checks_total = $totalCount
     checks_passed = $passCount

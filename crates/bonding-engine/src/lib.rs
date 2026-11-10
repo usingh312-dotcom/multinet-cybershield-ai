@@ -9,7 +9,7 @@ pub mod scheduler;
 pub mod socket;
 
 pub use path_manager::{PathConfig, PathHealth, PathId, PathManager, PathStats};
-pub use scheduler::{SchedulerStats, ScheduledPacket, WeightedPacketScheduler};
+pub use scheduler::{ScheduledPacket, SchedulerStats, WeightedPacketScheduler};
 pub use socket::{BondedSocket, SocketError};
 
 #[derive(Debug, Error)]

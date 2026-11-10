@@ -20,6 +20,7 @@ pub fn run_synthetic_suite(seed: u64) -> Vec<TestCaseResult> {
         run_all_paths_unavailable_scenario(),
         run_mtu_exclusion_scenario(),
         run_metric_anomaly_handling_scenario(),
+        run_zero_capacity_path_starvation_scenario(),
     ]
 }
 
@@ -98,7 +99,7 @@ fn run_single_path_scenario() -> TestCaseResult {
             loss_pct: 0.0,
             rtt_ms: 12.0,
         }],
-        raw_samples: vec![100.0, 100.0],
+        raw_samples: vec![100.0],
     }
 }
 
@@ -271,8 +272,11 @@ fn run_tri_asymmetric_paths_scenario(_seed: u64) -> TestCaseResult {
     let c_starlink = *counts.get(&p_starlink).unwrap_or(&0);
     let c_5g = *counts.get(&p_5g).unwrap_or(&0);
 
-    // Fiber must receive the majority share, Starlink intermediate, 5G lowest share
-    let pass = (c_fiber > c_starlink) && (c_starlink > 0) && (c_5g > 0);
+    // Assert all 10,000 packets scheduled and ordered by configured capacity weights:
+    // Fiber (500M) > Starlink (120M) > 5G (60M) > 0
+    let scheduled_all = (c_fiber + c_starlink + c_5g) == total_packets;
+    let strictly_ordered = (c_fiber > c_starlink) && (c_starlink > c_5g) && (c_5g > 0);
+    let pass = scheduled_all && strictly_ordered;
 
     let per_path = vec![
         PerPathMetrics {
@@ -309,7 +313,8 @@ fn run_tri_asymmetric_paths_scenario(_seed: u64) -> TestCaseResult {
 
     TestCaseResult {
         test_id: "synth_sched_tri_asymmetric".to_string(),
-        test_name: "Three-Path Asymmetric Capacity Scheduler Share".to_string(),
+        test_name: "Three-Path Asymmetric Capacity Scheduler Share (680 Mbps Configured Capacity)"
+            .to_string(),
         tier: EvidenceTier::Synthetic,
         status: if pass {
             TestStatus::Pass
@@ -319,7 +324,14 @@ fn run_tri_asymmetric_paths_scenario(_seed: u64) -> TestCaseResult {
         reason: if pass {
             None
         } else {
-            Some("Scheduler did not respect asymmetric weights".into())
+            Some(format!(
+                "Scheduler failed weight assertions: scheduled={}/{}, fiber={}, starlink={}, 5g={}",
+                c_fiber + c_starlink + c_5g,
+                total_packets,
+                c_fiber,
+                c_starlink,
+                c_5g
+            ))
         },
         metrics: Some(BenchmarkMetrics {
             duration_ms: 1000,
@@ -619,6 +631,67 @@ fn run_metric_anomaly_handling_scenario() -> TestCaseResult {
             None
         } else {
             Some("Scheduler assigned traffic to NaN/Infinite metric path".into())
+        },
+        metrics: None,
+        per_path_metrics: vec![],
+        raw_samples: vec![],
+    }
+}
+
+/// Scenario 9: Zero-capacity path starvation protection.
+fn run_zero_capacity_path_starvation_scenario() -> TestCaseResult {
+    let mut scheduler = WeightedPacketScheduler::new();
+    let p_live = "p_live_100m".to_string();
+    let p_dead = "p_zero_cap".to_string();
+
+    scheduler.add_path(p_live.clone(), 1500);
+    scheduler.add_path(p_dead.clone(), 1500);
+
+    scheduler.update_metrics(&PathStats {
+        path_id: p_live.clone(),
+        goodput_bps: 100_000_000.0,
+        rtt_ms: 10.0,
+        health: PathHealth::Connected,
+        mtu: 1500,
+        ..Default::default()
+    });
+    scheduler.update_metrics(&PathStats {
+        path_id: p_dead.clone(),
+        goodput_bps: 0.0,
+        rtt_ms: 50.0,
+        health: PathHealth::Connected,
+        mtu: 1500,
+        ..Default::default()
+    });
+
+    let mut scheduled_to_dead = false;
+    let mut live_count = 0;
+    for _ in 0..200 {
+        if let Some(pkt) = scheduler.schedule(1400) {
+            if pkt.path_id == p_dead {
+                scheduled_to_dead = true;
+                break;
+            } else if pkt.path_id == p_live {
+                live_count += 1;
+            }
+        }
+    }
+
+    let pass = !scheduled_to_dead && live_count == 200;
+
+    TestCaseResult {
+        test_id: "synth_sched_zero_capacity".to_string(),
+        test_name: "Zero-Capacity Path Starvation Protection".to_string(),
+        tier: EvidenceTier::Synthetic,
+        status: if pass {
+            TestStatus::Pass
+        } else {
+            TestStatus::Fail
+        },
+        reason: if pass {
+            None
+        } else {
+            Some("Scheduler assigned traffic to zero-capacity path".into())
         },
         metrics: None,
         per_path_metrics: vec![],

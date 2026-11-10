@@ -2,6 +2,22 @@
 
 use crate::models::{BenchmarkRun, TestStatus};
 
+/// Escapes HTML special characters: `&`, `<`, `>`, `"`, `'`.
+pub fn escape_html(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for c in input.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 pub fn generate_html_report(run: &BenchmarkRun) -> String {
     let mut html = String::new();
     html.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
@@ -9,7 +25,7 @@ pub fn generate_html_report(run: &BenchmarkRun) -> String {
     html.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
     html.push_str(&format!(
         "<title>MultiNet Benchmark Report — {}</title>\n",
-        run.run_id
+        escape_html(&run.run_id)
     ));
     html.push_str("<style>\n");
     html.push_str(r#"
@@ -147,11 +163,14 @@ pub fn generate_html_report(run: &BenchmarkRun) -> String {
     html.push_str("<h1>MultiNet Benchmark Lab</h1>\n");
     html.push_str(&format!(
         "<div class=\"meta-line\">Run ID: <strong>{}</strong> | Schema: {} | Tier: <span class=\"badge badge-tier\">{}</span></div>\n",
-        run.run_id, run.schema_version, run.tier
+        escape_html(&run.run_id), escape_html(&run.schema_version), run.tier
     ));
     html.push_str(&format!(
         "<div class=\"meta-line\">Profile: <strong>{}</strong> | Platform: {} ({}) | Commit: <code>{}</code></div>\n",
-        run.profile_name, run.metadata.os, run.metadata.architecture, &run.metadata.commit_sha[..run.metadata.commit_sha.len().min(8)]
+        escape_html(&run.profile_name),
+        escape_html(&run.metadata.os),
+        escape_html(&run.metadata.architecture),
+        escape_html(&run.metadata.commit_sha[..run.metadata.commit_sha.len().min(8)])
     ));
     html.push_str("</div>\n");
     html.push_str(
@@ -196,23 +215,31 @@ pub fn generate_html_report(run: &BenchmarkRun) -> String {
 
         let mut details = String::new();
         if let Some(ref r) = t.reason {
+            let escaped_reason = escape_html(r);
             if t.status == TestStatus::Blocked {
-                details.push_str(&format!("<div class=\"callout-blocked\">{}</div>", r));
+                details.push_str(&format!(
+                    "<div class=\"callout-blocked\">{}</div>",
+                    escaped_reason
+                ));
             } else {
-                details.push_str(&format!("<div>{}</div>", r));
+                details.push_str(&format!("<div>{}</div>", escaped_reason));
             }
         }
         if !t.per_path_metrics.is_empty() {
             details.push_str("<div style=\"margin-top:6px; font-size:12px; color:var(--text-dim);\">Path Share: ");
             for p in &t.per_path_metrics {
-                details.push_str(&format!("{}: {:.1}% | ", p.path_id, p.packet_share_pct));
+                details.push_str(&format!(
+                    "{}: {:.1}% | ",
+                    escape_html(&p.path_id),
+                    p.packet_share_pct
+                ));
             }
             details.push_str("</div>");
         }
 
         html.push_str(&format!(
             "<tr>\n<td><strong>{}</strong><br><small style=\"color:var(--text-dim)\">{}</small></td>\n<td>{}</td>\n<td>{}</td>\n<td>{}</td>\n<td>{}</td>\n<td>{}</td>\n</tr>\n",
-            t.test_name, t.test_id, tier_badge, status_badge, tp_str, lat_str, details
+            escape_html(&t.test_name), escape_html(&t.test_id), tier_badge, status_badge, tp_str, lat_str, details
         ));
     }
 
@@ -220,4 +247,74 @@ pub fn generate_html_report(run: &BenchmarkRun) -> String {
     html.push_str("</div>\n</body>\n</html>\n");
 
     html
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{
+        EvidenceTier, RunSummary, RunTimestamps, SystemMetadata, TestCaseResult, TestStatus,
+    };
+
+    #[test]
+    fn test_escape_html_replaces_all_special_chars() {
+        assert_eq!(
+            escape_html("<script>alert('xss' & \"attack\")</script>"),
+            "&lt;script&gt;alert(&#39;xss&#39; &amp; &quot;attack&quot;)&lt;/script&gt;"
+        );
+        assert_eq!(escape_html("Safe string 123"), "Safe string 123");
+        assert_eq!(escape_html("Unicode: 日本語 / 🚀"), "Unicode: 日本語 / 🚀");
+    }
+
+    #[test]
+    fn test_html_report_escapes_xss_payloads_in_reasons_and_names() {
+        let run = BenchmarkRun {
+            schema_version: "1.0.0".to_string(),
+            run_id: "xss-test-run<script>".to_string(),
+            timestamps: RunTimestamps {
+                start_utc: "2026-11-10T00:00:00Z".to_string(),
+                end_utc: "2026-11-10T00:01:00Z".to_string(),
+                duration_ms: 60000,
+            },
+            metadata: SystemMetadata {
+                app_version: "0.1.0".to_string(),
+                commit_sha: "abcd1234<script>".to_string(),
+                branch: "test".to_string(),
+                os: "windows<img onerror=alert(1)>".to_string(),
+                os_version: "11".to_string(),
+                architecture: "x86_64".to_string(),
+                cpu_model: "AMD".to_string(),
+                ram_total_bytes: 16000000000,
+            },
+            tier: EvidenceTier::Synthetic,
+            profile_name: "test<script>".to_string(),
+            seed: Some(42),
+            tests: vec![TestCaseResult {
+                test_id: "id_xss<script>".to_string(),
+                test_name: "Test Name <marquee>".to_string(),
+                tier: EvidenceTier::Synthetic,
+                status: TestStatus::Blocked,
+                reason: Some("Blocked because <script>alert(1)</script> & \"quotes\"".to_string()),
+                metrics: None,
+                per_path_metrics: vec![],
+                raw_samples: vec![],
+            }],
+            summary: RunSummary {
+                total_tests: 1,
+                passed: 0,
+                failed: 0,
+                blocked: 1,
+                skipped: 0,
+                not_tested: 0,
+            },
+        };
+
+        let html = generate_html_report(&run);
+        assert!(!html.contains("<script>"));
+        assert!(!html.contains("<marquee>"));
+        assert!(!html.contains("<img onerror=alert(1)>"));
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&lt;marquee&gt;"));
+        assert!(html.contains("&amp; &quot;quotes&quot;"));
+    }
 }

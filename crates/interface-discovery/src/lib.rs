@@ -1,7 +1,7 @@
-﻿//! interface-discovery — real Windows network adapter enumeration via the
+//! interface-discovery — real Windows network adapter enumeration via the
 //! IP Helper API (`GetAdaptersAddresses`). No system mutations.
 
-use network_core::{InterfaceKind, InterfaceDiscovery, NetworkError, NetworkInterface};
+use network_core::{InterfaceDiscovery, InterfaceKind, NetworkError, NetworkInterface};
 
 #[cfg(windows)]
 mod windows;
@@ -78,13 +78,17 @@ const VIRTUAL_KEYWORDS: &[&str] = &[
 /// link. Heuristic by design; the raw `IfType` is still preserved.
 pub fn looks_virtual(description: &str, name: &str) -> bool {
     let haystack = format!("{} {}", description, name).to_ascii_lowercase();
-    VIRTUAL_KEYWORDS.iter().any(|keyword| haystack.contains(keyword))
+    VIRTUAL_KEYWORDS
+        .iter()
+        .any(|keyword| haystack.contains(keyword))
 }
 
 /// A link is treated as physical when it is Ethernet/Wi-Fi, is not flagged as
 /// virtual, and reports a hardware MAC address.
 pub fn is_physical_link(kind: InterfaceKind, mac_length: usize, looks_virtual: bool) -> bool {
-    matches!(kind, InterfaceKind::Ethernet | InterfaceKind::Wifi) && !looks_virtual && mac_length >= 6
+    matches!(kind, InterfaceKind::Ethernet | InterfaceKind::Wifi)
+        && !looks_virtual
+        && mac_length >= 6
 }
 
 #[cfg(test)]
@@ -104,11 +108,17 @@ mod tests {
 
     #[test]
     fn detects_virtual_adapters() {
-        assert!(looks_virtual("Hyper-V Virtual Ethernet Adapter", "vEthernet (Default Switch)"));
+        assert!(looks_virtual(
+            "Hyper-V Virtual Ethernet Adapter",
+            "vEthernet (Default Switch)"
+        ));
         assert!(looks_virtual("", "VMware Network Adapter VMnet8"));
         assert!(looks_virtual("TAP-Windows Adapter V9", ""));
         assert!(looks_virtual("Microsoft Wi-Fi Direct Virtual Adapter", ""));
-        assert!(!looks_virtual("Intel(R) Ethernet Connection I219-V", "Ethernet"));
+        assert!(!looks_virtual(
+            "Intel(R) Ethernet Connection I219-V",
+            "Ethernet"
+        ));
         assert!(!looks_virtual("Intel(R) Wi-Fi 6 AX201 160MHz", "Wi-Fi"));
     }
 

@@ -5,7 +5,9 @@
 //!
 //! Live tests are strictly opt-in and require affirmative confirmation.
 
-use crate::models::{BenchmarkMetrics, EvidenceTier, TestCaseResult, TestStatus};
+use crate::models::{
+    calculate_percentiles, BenchmarkMetrics, EvidenceTier, TestCaseResult, TestStatus,
+};
 use speed_test::{run_speed_test, SpeedTestConfig, SpeedTestError};
 use std::net::IpAddr;
 use std::sync::atomic::AtomicBool;
@@ -18,6 +20,25 @@ pub async fn run_live_baseline(
     allow_loopback_cert: bool,
     cancel: Arc<AtomicBool>,
 ) -> TestCaseResult {
+    // Fail-closed if specified interface IP is not assigned to any local adapter.
+    if let Some(ip) = interface_local_ip {
+        if std::net::UdpSocket::bind((ip, 0)).is_err() {
+            return TestCaseResult {
+                test_id: "live_interface_baseline".to_string(),
+                test_name: format!("Single Interface Baseline ({})", ip),
+                tier: EvidenceTier::LiveInterface,
+                status: TestStatus::Fail,
+                reason: Some(format!(
+                    "Interface IP {} is not assigned to any local adapter",
+                    ip
+                )),
+                metrics: None,
+                per_path_metrics: vec![],
+                raw_samples: vec![],
+            };
+        }
+    }
+
     let config = SpeedTestConfig {
         server_url: server_url.clone(),
         interface_local_ip,
@@ -33,6 +54,10 @@ pub async fn run_live_baseline(
     match report_result {
         Ok(report) => {
             let pass = report.download_mbps > 0.0;
+            let (p50_lat, p95_lat) = calculate_percentiles(&report.rtt_samples)
+                .map(|(p50, p95)| (Some(p50), Some(p95)))
+                .unwrap_or((None, None));
+
             TestCaseResult {
                 test_id: "live_interface_baseline".to_string(),
                 test_name: format!(
@@ -66,13 +91,13 @@ pub async fn run_live_baseline(
                     packets_reordered: 0,
                     bytes_sent: report.upload_bytes,
                     bytes_received: report.download_bytes,
-                    p50_latency_ms: Some(report.ping_ms),
-                    p95_latency_ms: Some(report.ping_ms + report.jitter_ms),
-                    p50_throughput_mbps: Some(report.download_mbps),
-                    p95_throughput_mbps: Some(report.download_mbps),
+                    p50_latency_ms: p50_lat,
+                    p95_latency_ms: p95_lat,
+                    p50_throughput_mbps: None,
+                    p95_throughput_mbps: None,
                 }),
                 per_path_metrics: vec![],
-                raw_samples: vec![report.download_mbps, report.download_mbps],
+                raw_samples: vec![report.download_mbps],
             }
         }
         Err(e) => {

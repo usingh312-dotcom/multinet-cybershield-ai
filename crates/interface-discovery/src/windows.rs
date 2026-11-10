@@ -5,9 +5,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::ptr;
 
-use network_core::{
-    InterfaceDiscovery, NetworkError, NetworkInterface, OperationalStatus,
-};
+use network_core::{InterfaceDiscovery, NetworkError, NetworkInterface, OperationalStatus};
 use windows_sys::Win32::Foundation::ERROR_BUFFER_OVERFLOW;
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     GetAdaptersAddresses, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_INCLUDE_PREFIX,
@@ -238,14 +236,26 @@ mod tests {
             .discover_interfaces()
             .expect("GetAdaptersAddresses should succeed");
 
-        assert!(!interfaces.is_empty(), "expected at least one Windows adapter");
+        assert!(
+            !interfaces.is_empty(),
+            "expected at least one Windows adapter"
+        );
 
         let mut ids = std::collections::HashSet::new();
         for interface in &interfaces {
             assert!(!interface.id.is_empty(), "adapter id must be populated");
-            assert!(!interface.name.is_empty(), "friendly name must be populated");
-            assert!(interface.interface_index > 0, "interface index must be populated");
-            assert!(ids.insert(interface.id.clone()), "adapter ids must be unique");
+            assert!(
+                !interface.name.is_empty(),
+                "friendly name must be populated"
+            );
+            assert!(
+                interface.interface_index > 0,
+                "interface index must be populated"
+            );
+            assert!(
+                ids.insert(interface.id.clone()),
+                "adapter ids must be unique"
+            );
             println!("{interface:?}");
         }
 
@@ -271,7 +281,10 @@ mod tests {
     #[test]
     fn reports_gateways_when_available() {
         let interfaces = WindowsInterfaceDiscovery.discover_interfaces().unwrap();
-        for interface in interfaces.iter().filter(|interface| !interface.gateways.is_empty()) {
+        for interface in interfaces
+            .iter()
+            .filter(|interface| !interface.gateways.is_empty())
+        {
             println!("gateway for {}: {:?}", interface.name, interface.gateways);
         }
         // Gateways are optional; this test only exercises the walk.

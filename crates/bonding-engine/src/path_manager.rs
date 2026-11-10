@@ -4,10 +4,10 @@
 //! three-path bonding scheduler. Paths transition between Connected, Degraded,
 //! Unhealthy and Disconnected; only usable paths are scheduled.
 
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use network_core::InterfaceMetrics;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type PathId = String;
 
@@ -201,12 +201,15 @@ impl PathManager {
     pub fn update_metrics(&mut self, path_id: &str, metrics: &InterfaceMetrics) {
         let now = now_ms();
         let health = infer_health(metrics);
-        let stats = self.stats.entry(path_id.to_string()).or_insert_with(|| PathStats {
-            path_id: path_id.to_string(),
-            health,
-            mtu: 0,
-            ..Default::default()
-        });
+        let stats = self
+            .stats
+            .entry(path_id.to_string())
+            .or_insert_with(|| PathStats {
+                path_id: path_id.to_string(),
+                health,
+                mtu: 0,
+                ..Default::default()
+            });
         stats.health = health;
         stats.rtt_ms = metrics.latency_ms.unwrap_or(0.0);
         stats.loss_pct = metrics.loss_pct.unwrap_or(0.0);
@@ -223,7 +226,7 @@ impl PathManager {
             stats.rx_acks += 1;
             stats.last_seen_ms = Some(now);
             self.estimator.record(now, stats.acked_bytes);
-        stats.goodput_bps = self.estimator.goodput_bps();
+            stats.goodput_bps = self.estimator.goodput_bps();
         }
     }
 

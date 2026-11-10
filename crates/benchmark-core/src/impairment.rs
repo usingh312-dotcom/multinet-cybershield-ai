@@ -179,6 +179,8 @@ pub struct ImpairmentChannel {
     /// Token bucket for rate limiting: last token update in virtual ms
     last_rate_limit_virtual_ms: u64,
     tokens_available_bytes: f64,
+    /// Next virtual time when the transmission link becomes available for a new packet
+    next_available_tx_virtual_ms: u64,
 }
 
 impl ImpairmentChannel {
@@ -193,6 +195,7 @@ impl ImpairmentChannel {
             next_seq: 0,
             last_rate_limit_virtual_ms: 0,
             tokens_available_bytes: 0.0,
+            next_available_tx_virtual_ms: 0,
         })
     }
 
@@ -250,28 +253,35 @@ impl ImpairmentChannel {
         } else {
             0
         };
-        let mut delivery_time_ms = virtual_now_ms + self.profile.base_latency_ms + jitter;
 
-        // Rate limiter delay if bandwidth cap is configured
-        if let Some(bps) = self.profile.bandwidth_bps {
+        // Rate limiter and transmission serialization if bandwidth cap is configured
+        let (tx_start_ms, wire_time_ms) = if let Some(bps) = self.profile.bandwidth_bps {
             let bytes_per_ms = (bps as f64) / 8000.0;
             let elapsed_ms = virtual_now_ms.saturating_sub(self.last_rate_limit_virtual_ms);
-            self.tokens_available_bytes += (elapsed_ms as f64) * bytes_per_ms;
             let burst_cap = (bps as f64) / 8.0 * 0.1; // 100ms burst cap
-            if self.tokens_available_bytes > burst_cap {
-                self.tokens_available_bytes = burst_cap;
-            }
+            self.tokens_available_bytes =
+                (self.tokens_available_bytes + (elapsed_ms as f64) * bytes_per_ms).min(burst_cap);
             self.last_rate_limit_virtual_ms = virtual_now_ms;
 
-            if self.tokens_available_bytes < (payload.len() as f64) {
+            let wait_ms = if self.tokens_available_bytes < (payload.len() as f64) {
                 let needed_bytes = (payload.len() as f64) - self.tokens_available_bytes;
-                let additional_delay_ms = (needed_bytes / bytes_per_ms).ceil() as u64;
-                delivery_time_ms += additional_delay_ms;
                 self.tokens_available_bytes = 0.0;
+                (needed_bytes / bytes_per_ms).ceil() as u64
             } else {
                 self.tokens_available_bytes -= payload.len() as f64;
-            }
-        }
+                0
+            };
+
+            let wire_time = ((payload.len() as f64) / bytes_per_ms).max(1.0).ceil() as u64;
+            let tx_start = self.next_available_tx_virtual_ms.max(virtual_now_ms) + wait_ms;
+            self.next_available_tx_virtual_ms = tx_start + wire_time;
+            (tx_start, wire_time)
+        } else {
+            (virtual_now_ms, 0)
+        };
+
+        let mut delivery_time_ms =
+            tx_start_ms + wire_time_ms + self.profile.base_latency_ms + jitter;
 
         let seq_no = self.next_seq;
         self.next_seq += 1;
@@ -286,15 +296,24 @@ impl ImpairmentChannel {
             false
         };
 
-        // Check duplication
+        // Check duplication: duplicate packets also traverse the link and consume transmission time
         let dup_roll = self.rng.next_f64() * 100.0;
         if dup_roll < self.profile.duplication_pct {
             self.stats.packets_duplicated += 1;
+            let dup_tx_start = if self.profile.bandwidth_bps.is_some() {
+                let start = self.next_available_tx_virtual_ms;
+                self.next_available_tx_virtual_ms += wire_time_ms;
+                start
+            } else {
+                tx_start_ms
+            };
+            let dup_delivery =
+                dup_tx_start + wire_time_ms + self.profile.base_latency_ms + jitter + 1;
             let dup_packet = InFlightPacket {
                 seq_no,
                 payload: payload.clone(),
                 enqueue_time_ms: virtual_now_ms,
-                delivery_time_ms: delivery_time_ms + 2,
+                delivery_time_ms: dup_delivery,
                 is_duplicate: true,
                 is_reordered,
             };
@@ -416,5 +435,77 @@ mod tests {
         let on_time = ch.poll_deliverable(150);
         assert_eq!(on_time.len(), 1);
         assert_eq!(on_time[0].payload, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_simultaneous_burst_serialization_under_bandwidth_cap() {
+        // 8 Mbps = 1000 bytes/ms
+        let profile = ImpairmentProfile {
+            bandwidth_bps: Some(8_000_000),
+            base_latency_ms: 10,
+            jitter_ms: 0,
+            loss_pct: 0.0,
+            queue_capacity: 100,
+            ..Default::default()
+        };
+
+        let mut ch = ImpairmentChannel::new(profile, 42).unwrap();
+        // Offer 5 1000-byte packets simultaneously at virtual_now_ms = 0
+        for _ in 0..5 {
+            ch.offer_packet(vec![0xAA; 1000], 0).unwrap();
+        }
+
+        assert_eq!(ch.queue_len(), 5);
+
+        // Under rate limiting and serialization:
+        // Packet 0: wait 1ms, wire 1ms -> delivery at 12ms
+        // Packet 1: wait 1ms, wire 1ms -> delivery at 14ms
+        // Packet 2: wait 1ms, wire 1ms -> delivery at 16ms
+        // Packet 3: wait 1ms, wire 1ms -> delivery at 18ms
+        // Packet 4: wait 1ms, wire 1ms -> delivery at 20ms
+        let mut prev_delivery = 0;
+        for i in 0..ch.queue.len() {
+            let pkt = &ch.queue[i];
+            assert!(
+                pkt.delivery_time_ms > prev_delivery,
+                "Packet {} delivery {} must be strictly greater than previous {}",
+                i,
+                pkt.delivery_time_ms,
+                prev_delivery
+            );
+            prev_delivery = pkt.delivery_time_ms;
+        }
+
+        // At t=11, none delivered
+        assert_eq!(ch.poll_deliverable(11).len(), 0);
+        // At t=15, first two delivered
+        assert_eq!(ch.poll_deliverable(15).len(), 2);
+        // At t=20, remaining three delivered
+        assert_eq!(ch.poll_deliverable(20).len(), 3);
+        assert_eq!(ch.queue_len(), 0);
+    }
+
+    #[test]
+    fn test_duplication_consumes_bandwidth() {
+        let profile = ImpairmentProfile {
+            bandwidth_bps: Some(8_000_000), // 1000 bytes/ms
+            base_latency_ms: 5,
+            jitter_ms: 0,
+            duplication_pct: 100.0, // force duplicate
+            loss_pct: 0.0,
+            queue_capacity: 10,
+            ..Default::default()
+        };
+
+        let mut ch = ImpairmentChannel::new(profile, 42).unwrap();
+        ch.offer_packet(vec![0x55; 1000], 0).unwrap();
+
+        // Must produce 2 packets in queue: original and duplicate
+        assert_eq!(ch.queue_len(), 2);
+        assert_eq!(ch.stats().packets_duplicated, 1);
+
+        let p1 = &ch.queue[0];
+        let p2 = &ch.queue[1];
+        assert!(p1.delivery_time_ms < p2.delivery_time_ms);
     }
 }

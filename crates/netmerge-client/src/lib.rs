@@ -116,7 +116,11 @@ impl NetMergeClient {
 
     /// Last connection error, if any.
     pub fn last_error(&self) -> Option<String> {
-        self.inner.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.inner
+            .last_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Record a mode transition. Mode A and Mode B are mutually exclusive.
@@ -152,7 +156,10 @@ impl NetMergeClient {
     }
 
     /// Send a request and await its response with the default timeout.
-    pub fn call(&self, request: contracts::Request) -> Result<contracts::Response, error::ClientError> {
+    pub fn call(
+        &self,
+        request: contracts::Request,
+    ) -> Result<contracts::Response, error::ClientError> {
         self.call_with_timeout(request, DEFAULT_REQUEST_TIMEOUT)
     }
 
@@ -177,9 +184,10 @@ impl NetMergeClient {
             // Close the per-request pipe; a long-lived connection can be added later.
             let _ = pipe;
             if result.id != id {
-                return Err(error::ClientError::Protocol(
-                    format!("response id mismatch: expected {id}, got {}", result.id),
-                ));
+                return Err(error::ClientError::Protocol(format!(
+                    "response id mismatch: expected {id}, got {}",
+                    result.id
+                )));
             }
             Ok(result)
         }
@@ -201,7 +209,8 @@ impl NetMergeClient {
         payload: &[u8],
         timeout: Duration,
     ) -> Result<contracts::Response, error::ClientError> {
-        let mut pipe_clone = pipe.try_clone()
+        let mut pipe_clone = pipe
+            .try_clone()
             .map_err(|e| error::ClientError::Io(e.to_string()))?;
         let payload_clone = payload.to_vec();
 
@@ -209,32 +218,39 @@ impl NetMergeClient {
         thread::spawn(move || {
             let result = (|| -> Result<contracts::Response, error::ClientError> {
                 // Write request followed by newline delimiter.
-                pipe_clone.write_all(&payload_clone)
+                pipe_clone
+                    .write_all(&payload_clone)
                     .map_err(|e| error::ClientError::Io(e.to_string()))?;
-                pipe_clone.write_all(b"\n")
+                pipe_clone
+                    .write_all(b"\n")
                     .map_err(|e| error::ClientError::Io(e.to_string()))?;
 
                 // Read one line response.
                 let mut reader = BufReader::new(pipe_clone);
                 let mut line = String::new();
-                reader.read_line(&mut line)
-                    .map_err(|e| {
-                        // Distinguish pipe-disconnected from other I/O errors.
-                        if e.to_string().contains("pipe") || e.to_string().contains("232") {
-                            error::ClientError::PipeDisconnected(e.to_string())
-                        } else {
-                            error::ClientError::Io(e.to_string())
-                        }
-                    })?;
+                reader.read_line(&mut line).map_err(|e| {
+                    // Distinguish pipe-disconnected from other I/O errors.
+                    if e.to_string().contains("pipe") || e.to_string().contains("232") {
+                        error::ClientError::PipeDisconnected(e.to_string())
+                    } else {
+                        error::ClientError::Io(e.to_string())
+                    }
+                })?;
 
                 if line.is_empty() {
-                    return Err(error::ClientError::Protocol("empty response from service".into()));
+                    return Err(error::ClientError::Protocol(
+                        "empty response from service".into(),
+                    ));
                 }
                 // Strip trailing newline/carriage return.
-                line = line.trim_end_matches('\n').trim_end_matches('\r').to_string();
+                line = line
+                    .trim_end_matches('\n')
+                    .trim_end_matches('\r')
+                    .to_string();
 
-                let resp: contracts::Response = serde_json::from_str(&line)
-                    .map_err(|e| error::ClientError::Serialization(format!("invalid response: {e}")))?;
+                let resp: contracts::Response = serde_json::from_str(&line).map_err(|e| {
+                    error::ClientError::Serialization(format!("invalid response: {e}"))
+                })?;
                 Ok(resp)
             })();
             let _ = tx.send(result);
@@ -242,21 +258,22 @@ impl NetMergeClient {
 
         match rx.recv_timeout(timeout) {
             Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                Err(error::ClientError::RequestTimeout(
-                    format!("no response within {:?}", timeout),
-                ))
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                Err(error::ClientError::Protocol("worker thread panicked".into()))
-            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(
+                error::ClientError::RequestTimeout(format!("no response within {:?}", timeout)),
+            ),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(
+                error::ClientError::Protocol("worker thread panicked".into()),
+            ),
         }
     }
 
     #[cfg(windows)]
     fn open_pipe(&self) -> Result<File, error::ClientError> {
         File::open(&self.inner.pipe_name).map_err(|e| {
-            error::ClientError::Connection(format!("cannot open named pipe {}: {e}", self.inner.pipe_name))
+            error::ClientError::Connection(format!(
+                "cannot open named pipe {}: {e}",
+                self.inner.pipe_name
+            ))
         })
     }
 
@@ -268,15 +285,23 @@ impl NetMergeClient {
             method: contracts::Method::Health,
             params: None,
         };
-        let payload = serde_json::to_vec(&req).map_err(|e| error::ClientError::Serialization(e.to_string()))?;
+        let payload = serde_json::to_vec(&req)
+            .map_err(|e| error::ClientError::Serialization(e.to_string()))?;
         let resp = Self::exchange_with_timeout(pipe, &payload, DEFAULT_REQUEST_TIMEOUT)?;
         if !resp.ok {
             return Err(error::ClientError::Protocol(
-                resp.error.map(|e| e.message).unwrap_or_else(|| "health check rejected".into()),
+                resp.error
+                    .map(|e| e.message)
+                    .unwrap_or_else(|| "health check rejected".into()),
             ));
         }
-        let result = resp.result.ok_or_else(|| error::ClientError::Protocol("health response missing result".into()))?;
-        let version = result.get("pipe_version").and_then(|v| v.as_u64()).unwrap_or(0);
+        let result = resp
+            .result
+            .ok_or_else(|| error::ClientError::Protocol("health response missing result".into()))?;
+        let version = result
+            .get("pipe_version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         if version != PIPE_VERSION as u64 {
             return Err(error::ClientError::Protocol(format!(
                 "unsupported pipe version {version}, expected {PIPE_VERSION}"

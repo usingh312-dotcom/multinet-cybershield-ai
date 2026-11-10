@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use audit_logger::{AuditEvent as PolicyAuditEvent, AuditError as AuditSinkError, AuditSink};
+use audit_logger::{AuditError as AuditSinkError, AuditEvent as PolicyAuditEvent, AuditSink};
 use serde::Serialize;
 use sqlx::migrate;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
@@ -60,16 +60,14 @@ pub async fn initialize_database(data_dir: &Path) -> Result<DatabaseState, DbErr
 
     MIGRATOR.run(&pool).await?;
 
-    Ok(DatabaseState {
-        pool,
-        db_file,
-    })
+    Ok(DatabaseState { pool, db_file })
 }
 
 pub async fn database_status(state: &DatabaseState) -> Result<DbStatus, DbError> {
-    let row = sqlx::query("SELECT COUNT(*) AS applied, MAX(version) AS latest FROM _sqlx_migrations")
-        .fetch_one(&state.pool)
-        .await?;
+    let row =
+        sqlx::query("SELECT COUNT(*) AS applied, MAX(version) AS latest FROM _sqlx_migrations")
+            .fetch_one(&state.pool)
+            .await?;
     let foreign_keys = sqlx::query("PRAGMA foreign_keys")
         .fetch_one(&state.pool)
         .await?;
@@ -179,7 +177,8 @@ mod tests {
 
     #[tokio::test]
     async fn initializes_and_applies_migrations() {
-        let data_dir = std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
+        let data_dir =
+            std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
 
         let state = initialize_database(&data_dir).await.unwrap();
         let status = database_status(&state).await.unwrap();
@@ -195,7 +194,8 @@ mod tests {
 
     #[tokio::test]
     async fn enforces_foreign_keys() {
-        let data_dir = std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
+        let data_dir =
+            std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
 
         let state = initialize_database(&data_dir).await.unwrap();
 
@@ -206,7 +206,10 @@ mod tests {
         .execute(&state.pool)
         .await;
 
-        assert!(orphan.is_err(), "orphan metric insert must violate the foreign key");
+        assert!(
+            orphan.is_err(),
+            "orphan metric insert must violate the foreign key"
+        );
 
         state.pool.close().await;
         let _ = std::fs::remove_dir_all(&data_dir);
@@ -214,7 +217,8 @@ mod tests {
 
     #[tokio::test]
     async fn never_touches_prewritten_schema_and_is_idempotent() {
-        let data_dir = std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
+        let data_dir =
+            std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
 
         let state = initialize_database(&data_dir).await.unwrap();
         initialize_database(&data_dir).await.unwrap();
@@ -231,7 +235,8 @@ mod tests {
 
     #[tokio::test]
     async fn audit_sink_persists_across_restart() {
-        let data_dir = std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
+        let data_dir =
+            std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
 
         let state = initialize_database(&data_dir).await.unwrap();
         let sink = SqliteAuditSink::new(state.pool.clone());
@@ -261,12 +266,18 @@ mod tests {
         let restarted = initialize_database(&data_dir).await.unwrap();
         let sink_after_restart = SqliteAuditSink::new(restarted.pool.clone());
         assert_eq!(sink_after_restart.count_events().await.unwrap(), 2);
-        let denied = sink_after_restart.events_of_kind("policy_denied").await.unwrap();
+        let denied = sink_after_restart
+            .events_of_kind("policy_denied")
+            .await
+            .unwrap();
         assert_eq!(denied.len(), 1);
         assert_eq!(denied[0].detail, "arbitrary shell execution denied");
         assert!(denied[0].subject_id.is_some());
         assert!(denied[0].created_at.ends_with('Z') && denied[0].created_at.contains('T'));
-        let approvals = sink_after_restart.events_of_kind("approval_requested").await.unwrap();
+        let approvals = sink_after_restart
+            .events_of_kind("approval_requested")
+            .await
+            .unwrap();
         assert_eq!(approvals.len(), 1);
 
         restarted.pool.close().await;
@@ -275,7 +286,8 @@ mod tests {
 
     #[tokio::test]
     async fn policy_decisions_are_durable() {
-        let data_dir = std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
+        let data_dir =
+            std::env::temp_dir().join(format!("multinet-db-test-{}", uuid::Uuid::new_v4()));
 
         let state = initialize_database(&data_dir).await.unwrap();
         let sink = SqliteAuditSink::new(state.pool.clone());

@@ -230,7 +230,12 @@ mod tests {
         assert!(p.restore_network().await.is_ok());
     }
 
-    fn interface(kind: InterfaceKind, is_physical: bool, is_up: bool, addresses: Vec<IpAddr>) -> NetworkInterface {
+    fn interface(
+        kind: InterfaceKind,
+        is_physical: bool,
+        is_up: bool,
+        addresses: Vec<IpAddr>,
+    ) -> NetworkInterface {
         NetworkInterface {
             id: "test".to_string(),
             name: "test".to_string(),
@@ -259,8 +264,12 @@ mod tests {
     fn eligibility_requires_physical_up_adapter_with_address() {
         let v4: IpAddr = "192.0.2.10".parse().unwrap();
         assert!(interface(InterfaceKind::Ethernet, true, true, vec![v4]).is_eligible_for_bonding());
-        assert!(!interface(InterfaceKind::Ethernet, true, false, vec![v4]).is_eligible_for_bonding());
-        assert!(!interface(InterfaceKind::Ethernet, false, true, vec![v4]).is_eligible_for_bonding());
+        assert!(
+            !interface(InterfaceKind::Ethernet, true, false, vec![v4]).is_eligible_for_bonding()
+        );
+        assert!(
+            !interface(InterfaceKind::Ethernet, false, true, vec![v4]).is_eligible_for_bonding()
+        );
         assert!(!interface(InterfaceKind::Loopback, true, true, vec![v4]).is_eligible_for_bonding());
         assert!(!interface(InterfaceKind::Tunnel, true, true, vec![v4]).is_eligible_for_bonding());
         assert!(!interface(InterfaceKind::Ethernet, true, true, vec![]).is_eligible_for_bonding());
@@ -272,11 +281,20 @@ mod tests {
             InterfaceKind::Ethernet,
             true,
             true,
-            vec!["192.0.2.10".parse().unwrap(), "2001:db8::1".parse().unwrap()],
+            vec![
+                "192.0.2.10".parse().unwrap(),
+                "2001:db8::1".parse().unwrap(),
+            ],
         );
         assert!(iface.has_ipv4());
         assert!(iface.has_ipv6());
-        assert_eq!(iface.first_address_of_family(true), Some("192.0.2.10".parse().unwrap()));
-        assert_eq!(iface.first_address_of_family(false), Some("2001:db8::1".parse().unwrap()));
+        assert_eq!(
+            iface.first_address_of_family(true),
+            Some("192.0.2.10".parse().unwrap())
+        );
+        assert_eq!(
+            iface.first_address_of_family(false),
+            Some("2001:db8::1".parse().unwrap())
+        );
     }
 }

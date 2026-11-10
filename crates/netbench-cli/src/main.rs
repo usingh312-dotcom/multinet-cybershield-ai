@@ -6,11 +6,16 @@
 //! - `competitor-import`: Import and validate third-party (Speedify) test CSV/JSON
 //! - `compare`: Generate comparison report between MultiNet run and competitor record
 
-use benchmark_core::competitor::{evaluate_comparability, parse_competitor_csv, CompetitorRecord};
+use benchmark_core::competitor::{
+    evaluate_comparability, parse_competitor_csv, CompetitorRecord, MultiNetComparisonInput,
+};
 use benchmark_core::execute_deterministic_benchmark;
-use benchmark_core::models::{BenchmarkRun, EvidenceTier, RunTimestamps, SystemMetadata};
+use benchmark_core::models::{
+    BenchmarkRun, EvidenceTier, RunTimestamps, SystemMetadata, TestStatus,
+};
 use benchmark_core::providers::live::run_live_baseline;
 use benchmark_core::reports;
+use speed_test::is_loopback_host;
 use std::env;
 use std::fs;
 use std::net::IpAddr;
@@ -143,6 +148,7 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
     let mut server_url = String::new();
     let mut interface_ip: Option<IpAddr> = None;
     let mut live_opt_in = false;
+    let mut allow_self_signed = false;
     let mut output_dir = PathBuf::from("artifacts/benchmark/runs");
 
     let mut i = 0;
@@ -158,6 +164,10 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
             }
             "--enable-live-network-tests" => {
                 live_opt_in = true;
+                i += 1;
+            }
+            "--allow-self-signed-loopback" => {
+                allow_self_signed = true;
                 i += 1;
             }
             "--output" if i + 1 < args.len() => {
@@ -179,6 +189,19 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
         return ExitCode::from(1);
     }
 
+    let parsed_url = match reqwest::Url::parse(&server_url) {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("[netbench-cli] ERROR: Invalid server URL: {}", e);
+            return ExitCode::from(1);
+        }
+    };
+
+    if allow_self_signed && !is_loopback_host(&parsed_url) {
+        eprintln!("[netbench-cli] ERROR: '--allow-self-signed-loopback' is strictly forbidden for non-loopback endpoints.");
+        return ExitCode::from(1);
+    }
+
     println!(
         "[netbench-cli] Live baseline test starting against: {}",
         server_url
@@ -195,7 +218,8 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
         .unwrap()
         .to_string();
 
-    let result = run_live_baseline(server_url, interface_ip, true, cancel).await;
+    let result =
+        run_live_baseline(server_url.clone(), interface_ip, allow_self_signed, cancel).await;
     let elapsed = start_instant.elapsed();
     let end_utc = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
@@ -208,7 +232,7 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
         duration_ms: elapsed.as_millis().max(1) as u64,
     };
 
-    let run = BenchmarkRun::new(
+    let mut run = BenchmarkRun::new(
         run_id.clone(),
         EvidenceTier::LiveInterface,
         "live-interface-baseline".to_string(),
@@ -217,33 +241,51 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
         SystemMetadata::default(),
         vec![result],
     );
+    run.server_url = Some(server_url);
+    run.test_direction = Some("download".to_string());
+    run.protocol = Some("https".to_string());
+    if let Some(ip) = interface_ip {
+        run.active_wans = Some(vec![ip.to_string()]);
+    }
 
     let run_dir = output_dir.join(&run_id);
-    let _ = fs::create_dir_all(&run_dir);
-    let _ = fs::write(
-        run_dir.join("manifest.json"),
-        reports::json::generate_manifest_json(&run),
-    );
-    let _ = fs::write(
-        run_dir.join("results.json"),
-        reports::json::generate_results_json(&run),
-    );
-    let _ = fs::write(
-        run_dir.join("report.html"),
-        reports::html::generate_html_report(&run),
-    );
-    let _ = fs::write(
-        run_dir.join("summary.md"),
-        reports::markdown::generate_summary_markdown(&run),
-    );
+    if let Err(e) = fs::create_dir_all(&run_dir) {
+        eprintln!("[netbench-cli] ERROR creating artifact dir: {}", e);
+        return ExitCode::from(1);
+    }
+
+    let writes = [
+        ("manifest.json", reports::json::generate_manifest_json(&run)),
+        ("results.json", reports::json::generate_results_json(&run)),
+        ("report.html", reports::html::generate_html_report(&run)),
+        (
+            "summary.md",
+            reports::markdown::generate_summary_markdown(&run),
+        ),
+        ("results.csv", reports::csv::generate_results_csv(&run)),
+    ];
+
+    for (fname, content) in writes {
+        if let Err(e) = fs::write(run_dir.join(fname), content) {
+            eprintln!("[netbench-cli] ERROR writing {}: {}", fname, e);
+            return ExitCode::from(1);
+        }
+    }
 
     println!(
         "[netbench-cli] Baseline completed. Status: {}",
         run.tests[0].status
     );
-    println!("[netbench-cli] Artifacts written to: {}", run_dir.display());
+    println!(
+        "[netbench-cli] All 5 artifacts written to: {}",
+        run_dir.display()
+    );
 
-    ExitCode::SUCCESS
+    if run.tests[0].status != TestStatus::Pass {
+        ExitCode::from(2)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 fn handle_competitor_import(args: &[String]) -> ExitCode {
@@ -383,34 +425,26 @@ fn handle_compare(args: &[String]) -> ExitCode {
         }
     };
 
-    // Extract samples from MultiNet run
-    let mut mn_samples = Vec::new();
-    for t in &mn_run.tests {
-        if !t.raw_samples.is_empty() {
-            mn_samples.extend_from_slice(&t.raw_samples);
-        } else if let Some(ref m) = t.metrics {
-            mn_samples.push(m.throughput_mbps);
-        }
+    let multinet_input = MultiNetComparisonInput::from_benchmark_run(&mn_run);
+    let comparison = evaluate_comparability(&multinet_input, &comp_record);
+
+    if let Err(e) = fs::create_dir_all(&output_dir) {
+        eprintln!("[netbench-cli] ERROR creating comparison dir: {}", e);
+        return ExitCode::from(1);
     }
-
-    let comparison = evaluate_comparability(
-        &mn_run.run_id,
-        mn_run.tier,
-        &mn_run.metadata.os,
-        &comp_record.test_server_url,
-        &comp_record.test_direction,
-        &mn_samples,
-        &comp_record,
-    );
-
-    let _ = fs::create_dir_all(&output_dir);
     let json_out = serde_json::to_string_pretty(&comparison).unwrap();
     let json_path = output_dir.join(format!("{}.json", comparison.report_id));
-    let _ = fs::write(&json_path, json_out);
+    if let Err(e) = fs::write(&json_path, json_out) {
+        eprintln!("[netbench-cli] ERROR writing json comparison: {}", e);
+        return ExitCode::from(1);
+    }
 
     let csv_out = reports::csv::generate_comparison_csv(&comparison);
     let csv_path = output_dir.join(format!("{}.csv", comparison.report_id));
-    let _ = fs::write(&csv_path, csv_out);
+    if let Err(e) = fs::write(&csv_path, csv_out) {
+        eprintln!("[netbench-cli] ERROR writing csv comparison: {}", e);
+        return ExitCode::from(1);
+    }
 
     println!("[netbench-cli] Comparison evaluated!");
     match &comparison.status {

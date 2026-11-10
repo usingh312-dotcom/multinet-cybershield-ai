@@ -5,7 +5,7 @@
 use crate::IpcError;
 use interface_discovery::classify_if_type;
 use network_core::{InterfaceKind, NetworkInterface};
-use network_monitor::{RateTracker, InterfaceSample};
+use network_monitor::{InterfaceSample, RateTracker};
 use serde::{Deserialize, Serialize};
 use speed_test::{SpeedTestConfig, SpeedTestProgress, SpeedTestReport, SpeedTestStage};
 use sqlx::Row;
@@ -24,7 +24,9 @@ const SPEED_RESULT_RETENTION: i64 = 200;
 const PRUNE_EVERY_TICKS: u64 = 300;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn now_rfc3339() -> String {
@@ -34,7 +36,9 @@ fn now_rfc3339() -> String {
 }
 
 fn kind_label(interface: Option<&NetworkInterface>, if_type: u32) -> String {
-    let kind = interface.map(|i| i.kind).unwrap_or_else(|| classify_if_type(if_type));
+    let kind = interface
+        .map(|i| i.kind)
+        .unwrap_or_else(|| classify_if_type(if_type));
     serde_json::to_value(kind)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
@@ -335,7 +339,8 @@ pub fn spawn_traffic_monitor(state: Arc<DiagnosticsState>, pool: sqlx::SqlitePoo
 
             ticks = ticks.wrapping_add(1);
             if ticks % PRUNE_EVERY_TICKS == 0 {
-                let cutoff = OffsetDateTime::now_utc() - time::Duration::hours(TRAFFIC_RETENTION_HOURS);
+                let cutoff =
+                    OffsetDateTime::now_utc() - time::Duration::hours(TRAFFIC_RETENTION_HOURS);
                 if let Ok(cutoff) = cutoff.format(&Rfc3339) {
                     let _ = sqlx::query("DELETE FROM traffic_samples WHERE sampled_at < $1")
                         .bind(cutoff)
@@ -355,7 +360,9 @@ pub fn spawn_traffic_monitor(state: Arc<DiagnosticsState>, pool: sqlx::SqlitePoo
 }
 
 #[tauri::command]
-pub fn get_traffic_monitor_status(state: tauri::State<'_, DiagnosticsState>) -> TrafficMonitorStatusDto {
+pub fn get_traffic_monitor_status(
+    state: tauri::State<'_, DiagnosticsState>,
+) -> TrafficMonitorStatusDto {
     TrafficMonitorStatusDto {
         running: state.running.load(Ordering::Relaxed),
         last_sample_age_ms: lock(&state.last_sample).map(|t| t.elapsed().as_millis() as u64),
@@ -381,19 +388,21 @@ pub async fn get_traffic_snapshot(
     state: tauri::State<'_, DiagnosticsState>,
     pool: tauri::State<'_, crate::db::DatabaseState>,
 ) -> Result<TrafficSnapshotDto, IpcError> {
-    let mut snapshot = (*lock(&state.latest)).clone().unwrap_or_else(|| TrafficSnapshotDto {
-        sampled_at: now_rfc3339(),
-        source: "GetIfTable2".into(),
-        monitor_active: state.running.load(Ordering::Relaxed),
-        interfaces: Vec::new(),
-        physical_rx_bps: None,
-        physical_tx_bps: None,
-        session_rx_bytes: 0,
-        session_tx_bytes: 0,
-        total_rx_bytes: 0,
-        total_tx_bytes: 0,
-        peak_combined_bps: 0.0,
-    });
+    let mut snapshot = (*lock(&state.latest))
+        .clone()
+        .unwrap_or_else(|| TrafficSnapshotDto {
+            sampled_at: now_rfc3339(),
+            source: "GetIfTable2".into(),
+            monitor_active: state.running.load(Ordering::Relaxed),
+            interfaces: Vec::new(),
+            physical_rx_bps: None,
+            physical_tx_bps: None,
+            session_rx_bytes: 0,
+            session_tx_bytes: 0,
+            total_rx_bytes: 0,
+            total_tx_bytes: 0,
+            peak_combined_bps: 0.0,
+        });
     snapshot.monitor_active = state.running.load(Ordering::Relaxed);
 
     let cutoff = (OffsetDateTime::now_utc() - time::Duration::hours(TRAFFIC_RETENTION_HOURS))
@@ -616,7 +625,9 @@ fn validate_speed_request(request: &StartSpeedTestRequest) -> Result<SpeedTestCo
         return Err(IpcError::invalid_input("invalid ping sample count"));
     }
     if request.timeout_secs == 0 || request.timeout_secs > 300 {
-        return Err(IpcError::invalid_input("timeout must be between 1 and 300 seconds"));
+        return Err(IpcError::invalid_input(
+            "timeout must be between 1 and 300 seconds",
+        ));
     }
     let interface_local_ip = match &request.interface_local_ip {
         Some(raw) => Some(

@@ -319,7 +319,11 @@ mod tests {
         // All method names should be unique when serialized.
         for i in 0..serialized.len() {
             for j in i + 1..serialized.len() {
-                assert_ne!(serialized[i], serialized[j], "method names collide: {:?} vs {:?}", methods[i], methods[j]);
+                assert_ne!(
+                    serialized[i], serialized[j],
+                    "method names collide: {:?} vs {:?}",
+                    methods[i], methods[j]
+                );
             }
         }
     }

@@ -28,9 +28,11 @@ use thiserror::Error;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Maximum payload bytes carried in a single frame.
-const MAX_PAYLOAD: usize = 65535;
+pub const MAX_PAYLOAD: usize = 65535;
 /// Length of the per-frame authentication tag, in bytes (full SHA-256 output).
-const TAG_LEN: usize = 32;
+pub const TAG_LEN: usize = 32;
+/// Wire header length in bytes: length (2) + seq_no (8) + flags (1) + auth_tag (32) = 43 bytes.
+pub const HEADER_LEN: usize = 2 + 8 + 1 + TAG_LEN;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Error)]
 pub enum FramingError {
@@ -126,8 +128,8 @@ impl FramingLayer {
         }
 
         // Constant-time tag verification via Mac::verify_slice.
-        let mut verify_mac = HmacSha256::new_from_slice(&self.key)
-            .expect("HMAC-SHA256 accepts any key length");
+        let mut verify_mac =
+            HmacSha256::new_from_slice(&self.key).expect("HMAC-SHA256 accepts any key length");
         verify_mac.update(&frame.header.seq_no.to_le_bytes());
         verify_mac.update(&frame.payload);
         if verify_mac.verify_slice(&frame.header.auth_tag).is_err() {
@@ -145,8 +147,7 @@ impl FramingLayer {
 
 /// HMAC-SHA256 authentication tag over `key`, `seq_no`, and `payload`.
 fn compute_tag(key: &[u8; 32], seq: u64, payload: &[u8]) -> [u8; TAG_LEN] {
-    let mut mac = HmacSha256::new_from_slice(key)
-        .expect("HMAC-SHA256 accepts any key length");
+    let mut mac = HmacSha256::new_from_slice(key).expect("HMAC-SHA256 accepts any key length");
     mac.update(&seq.to_le_bytes());
     mac.update(payload);
     let result = mac.finalize();
@@ -154,6 +155,51 @@ fn compute_tag(key: &[u8; 32], seq: u64, payload: &[u8]) -> [u8; TAG_LEN] {
     let mut tag = [0u8; TAG_LEN];
     tag.copy_from_slice(&bytes);
     tag
+}
+
+/// Encodes a [`PacketFrame`] into the canonical wire binary representation:
+/// `[length: u16 le][seq_no: u64 le][flags: u8][auth_tag: [u8; 32]][payload]`
+pub fn encode_frame(frame: &PacketFrame) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HEADER_LEN + frame.payload.len());
+    out.extend_from_slice(&frame.header.length.to_le_bytes());
+    out.extend_from_slice(&frame.header.seq_no.to_le_bytes());
+    out.push(frame.header.flags);
+    out.extend_from_slice(&frame.header.auth_tag);
+    out.extend_from_slice(&frame.payload);
+    out
+}
+
+/// Decodes a wire binary slice into a [`PacketFrame`].
+///
+/// Returns `Err(FramingError::TruncatedFrame)` if `bytes` is shorter than `HEADER_LEN`
+/// or if `bytes.len() != HEADER_LEN + length`.
+/// Returns `Err(FramingError::FrameTooLarge)` if the declared length exceeds `MAX_PAYLOAD`.
+pub fn decode_frame(bytes: &[u8]) -> Result<PacketFrame, FramingError> {
+    if bytes.len() < HEADER_LEN {
+        return Err(FramingError::TruncatedFrame);
+    }
+    let length = u16::from_le_bytes([bytes[0], bytes[1]]) as usize;
+    if length > MAX_PAYLOAD {
+        return Err(FramingError::FrameTooLarge(length, MAX_PAYLOAD));
+    }
+    if bytes.len() != HEADER_LEN + length {
+        return Err(FramingError::TruncatedFrame);
+    }
+    let seq_no = u64::from_le_bytes(bytes[2..10].try_into().unwrap());
+    let flags = bytes[10];
+    let mut auth_tag = [0u8; TAG_LEN];
+    auth_tag.copy_from_slice(&bytes[11..43]);
+    let payload = bytes[43..43 + length].to_vec();
+
+    Ok(PacketFrame {
+        header: FrameHeader {
+            seq_no,
+            length: length as u16,
+            flags,
+            auth_tag,
+        },
+        payload,
+    })
 }
 
 #[cfg(test)]
@@ -236,8 +282,8 @@ mod tests {
     fn out_of_order_higher_seq_is_accepted() {
         let mut layer = FramingLayer::new(test_key());
         let high = layer.encapsulate(b"high".to_vec()).unwrap(); // seq 0
-        let low = layer.encapsulate(b"low".to_vec()).unwrap();   // seq 1
-        // Accept higher seq 1 first (out of order acceptance).
+        let low = layer.encapsulate(b"low".to_vec()).unwrap(); // seq 1
+                                                               // Accept higher seq 1 first (out of order acceptance).
         assert_eq!(layer.decapsulate(&low).unwrap().0, 1);
         // Re-decapsulating seq 0 (lower than last accepted 1) must be rejected.
         assert!(matches!(
@@ -262,10 +308,73 @@ mod tests {
         // seq 0 after u64::MAX: wrapping works, replay check passes (0 > MAX? no, but last was MAX, 0 <= MAX so replay)
         // Actually wrapping means 0 < MAX, so decapsulating f2 after f would be replay.
         // This test just verifies wraparound doesn't panic.
-        let _ = layer.decapsulate(&f);   // seq MAX, accepted
+        let _ = layer.decapsulate(&f); // seq MAX, accepted
         assert!(matches!(
-            layer.decapsulate(&f2),      // seq 0, <= MAX -> replay
+            layer.decapsulate(&f2), // seq 0, <= MAX -> replay
             Err(FramingError::ReplayDetected(0))
         ));
+    }
+
+    #[test]
+    fn wire_encode_decode_roundtrip() {
+        let mut layer = FramingLayer::new(test_key());
+        let payload = b"canonical binary wire format payload test".to_vec();
+        let frame = layer.encapsulate(payload.clone()).unwrap();
+
+        let encoded = encode_frame(&frame);
+        assert_eq!(encoded.len(), HEADER_LEN + payload.len());
+
+        let decoded = decode_frame(&encoded).expect("valid frame must decode");
+        assert_eq!(decoded.header, frame.header);
+        assert_eq!(decoded.payload, payload);
+
+        let (seq, decapsulated) = layer.decapsulate(&decoded).unwrap();
+        assert_eq!(seq, frame.header.seq_no);
+        assert_eq!(decapsulated, payload);
+    }
+
+    #[test]
+    fn wire_decode_truncated_header_rejected() {
+        let short = vec![0u8; HEADER_LEN - 1];
+        assert_eq!(
+            decode_frame(&short).unwrap_err(),
+            FramingError::TruncatedFrame
+        );
+    }
+
+    #[test]
+    fn wire_decode_truncated_payload_rejected() {
+        let mut layer = FramingLayer::new(test_key());
+        let frame = layer.encapsulate(b"some payload".to_vec()).unwrap();
+        let mut encoded = encode_frame(&frame);
+        encoded.pop(); // drop last byte of payload
+        assert_eq!(
+            decode_frame(&encoded).unwrap_err(),
+            FramingError::TruncatedFrame
+        );
+    }
+
+    #[test]
+    fn wire_decode_trailing_garbage_rejected() {
+        let mut layer = FramingLayer::new(test_key());
+        let frame = layer.encapsulate(b"clean payload".to_vec()).unwrap();
+        let mut encoded = encode_frame(&frame);
+        encoded.push(0xfe); // extra byte beyond declared length
+        assert_eq!(
+            decode_frame(&encoded).unwrap_err(),
+            FramingError::TruncatedFrame
+        );
+    }
+
+    #[test]
+    fn wire_encode_decode_empty_payload() {
+        let mut layer = FramingLayer::new(test_key());
+        let frame = layer.encapsulate(vec![]).unwrap();
+        let encoded = encode_frame(&frame);
+        assert_eq!(encoded.len(), HEADER_LEN);
+        let decoded = decode_frame(&encoded).unwrap();
+        assert_eq!(decoded.payload.len(), 0);
+        let (seq, _) = layer.decapsulate(&decoded).unwrap();
+        assert_eq!(seq, 0);
     }
 }

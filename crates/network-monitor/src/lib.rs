@@ -75,7 +75,11 @@ impl RateTracker {
     }
 
     /// Feed a new snapshot. The first snapshot produces `None` rates.
-    pub fn update(&mut self, counters: &[InterfaceCounters], elapsed: Duration) -> Vec<InterfaceSample> {
+    pub fn update(
+        &mut self,
+        counters: &[InterfaceCounters],
+        elapsed: Duration,
+    ) -> Vec<InterfaceSample> {
         let seconds = elapsed.as_secs_f64();
         let mut samples = Vec::with_capacity(counters.len());
 
@@ -99,8 +103,10 @@ impl RateTracker {
                 _ => (None, None),
             };
 
-            self.previous
-                .insert(counter.interface_index, (counter.in_octets, counter.out_octets));
+            self.previous.insert(
+                counter.interface_index,
+                (counter.in_octets, counter.out_octets),
+            );
 
             samples.push(InterfaceSample {
                 interface_index: counter.interface_index,
@@ -256,7 +262,10 @@ mod tests {
     #[test]
     fn disappearing_adapter_is_forgotten() {
         let mut tracker = RateTracker::new();
-        tracker.update(&[counter(1, 1, 1), counter(2, 1, 1)], Duration::from_secs(1));
+        tracker.update(
+            &[counter(1, 1, 1), counter(2, 1, 1)],
+            Duration::from_secs(1),
+        );
         assert_eq!(tracker.tracked_interfaces(), 2);
         tracker.update(&[counter(2, 2, 2)], Duration::from_secs(1));
         assert_eq!(tracker.tracked_interfaces(), 1);

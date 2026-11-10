@@ -7,7 +7,10 @@ pub fn foundation_stub() -> &'static str {
 }
 
 pub mod framing;
-pub use framing::{FrameHeader, FramingError, FramingLayer, PacketFrame};
+pub use framing::{
+    decode_frame, encode_frame, FrameHeader, FramingError, FramingLayer, PacketFrame, HEADER_LEN,
+    MAX_PAYLOAD, TAG_LEN,
+};
 
 #[cfg(test)]
 mod tests {

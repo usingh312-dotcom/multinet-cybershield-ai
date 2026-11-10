@@ -59,7 +59,7 @@ impl Default for SpeedTestConfig {
             upload_bytes: DEFAULT_UPLOAD_BYTES,
             ping_samples: DEFAULT_PING_SAMPLES,
             timeout_secs: 30,
-            allow_self_signed_loopback: true,
+            allow_self_signed_loopback: false,
         }
     }
 }
@@ -80,6 +80,7 @@ pub struct SpeedTestReport {
     pub upload_bytes: u64,
     pub ping_samples: u32,
     pub ping_received: u32,
+    pub rtt_samples: Vec<f64>,
     pub duration_ms: u64,
     pub started_at: String,
     pub completed_at: String,
@@ -136,7 +137,7 @@ fn now_rfc3339() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".into())
 }
 
-fn is_loopback_host(url: &reqwest::Url) -> bool {
+pub fn is_loopback_host(url: &reqwest::Url) -> bool {
     let Some(host) = url.host_str() else {
         return false;
     };
@@ -233,7 +234,9 @@ where
         "Sending latency probes",
     ));
 
-    let ping_url = base.join("ping").map_err(|e| SpeedTestError::InvalidConfig(e.to_string()))?;
+    let ping_url = base
+        .join("ping")
+        .map_err(|e| SpeedTestError::InvalidConfig(e.to_string()))?;
     let mut rtts: Vec<f64> = Vec::with_capacity(config.ping_samples as usize);
     let mut failures = 0u32;
     let mut server_name = String::new();
@@ -295,7 +298,9 @@ where
         "Downloading measurement payload",
     ));
 
-    let mut download_url = base.join("download").map_err(|e| SpeedTestError::InvalidConfig(e.to_string()))?;
+    let mut download_url = base
+        .join("download")
+        .map_err(|e| SpeedTestError::InvalidConfig(e.to_string()))?;
     download_url
         .query_pairs_mut()
         .append_pair("bytes", &config.download_bytes.to_string());
@@ -307,9 +312,7 @@ where
         )));
     }
 
-    let expected = response
-        .content_length()
-        .unwrap_or(config.download_bytes);
+    let expected = response.content_length().unwrap_or(config.download_bytes);
     let mut received_bytes = 0u64;
     let transfer_start = Instant::now();
     while let Some(chunk) = response.chunk().await? {
@@ -359,7 +362,9 @@ where
     for (index, byte) in payload.iter_mut().enumerate() {
         *byte = (index as u32).wrapping_mul(7_919) as u8;
     }
-    let upload_url = base.join("upload").map_err(|e| SpeedTestError::InvalidConfig(e.to_string()))?;
+    let upload_url = base
+        .join("upload")
+        .map_err(|e| SpeedTestError::InvalidConfig(e.to_string()))?;
     let upload_start = Instant::now();
     let response = client.post(upload_url).body(payload).send().await?;
     if !response.status().is_success() {
@@ -401,6 +406,7 @@ where
         upload_bytes: config.upload_bytes,
         ping_samples: config.ping_samples,
         ping_received,
+        rtt_samples: rtts,
         duration_ms: started.elapsed().as_millis() as u64,
         started_at,
         completed_at: now_rfc3339(),

@@ -200,6 +200,24 @@ pub struct BenchmarkRun {
     pub profile_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_direction: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hardware_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_wans: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wan_baselines: Option<Vec<f64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bonding_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_bonded: Option<bool>,
     pub tests: Vec<TestCaseResult>,
     pub summary: RunSummary,
 }
@@ -223,6 +241,15 @@ impl BenchmarkRun {
             tier,
             profile_name,
             seed,
+            server_url: None,
+            test_direction: None,
+            protocol: None,
+            hardware_profile: None,
+            active_wans: None,
+            wan_baselines: None,
+            bonding_mode: None,
+            duration_secs: None,
+            is_bonded: None,
             tests,
             summary,
         }

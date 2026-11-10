@@ -5,8 +5,8 @@
 //! depth -- never from Wi-Fi PHY rates. Disconnected, unhealthy, queue-full
 //! or MTU-constrained paths are skipped.
 
-use std::collections::HashMap;
 use crate::path_manager::{PathHealth, PathStats};
+use std::collections::HashMap;
 
 pub type PathId = String;
 
@@ -81,13 +81,11 @@ impl WeightedPacketScheduler {
 
     /// Update the scheduler's view of a path's measured metrics.
     pub fn update_metrics(&mut self, stats: &PathStats) {
-        self.paths
-            .entry(stats.path_id.clone())
-            .and_modify(|st| {
-                st.health = stats.health;
-                st.stats = stats.clone();
-                st.mtu = stats.mtu;
-            });
+        self.paths.entry(stats.path_id.clone()).and_modify(|st| {
+            st.health = stats.health;
+            st.stats = stats.clone();
+            st.mtu = stats.mtu;
+        });
     }
 
     /// Select the next path for `packet_size` bytes, or `None` when no path
@@ -250,7 +248,12 @@ mod tests {
         let w = sends.get("usb").unwrap();
         let a = sends.get("wifi1").unwrap();
         let _b = sends.get("wifi2").unwrap();
-        assert!(*w > *a * 3, "USB should carry far more than Wi-Fi 1: {} vs {}", w, a);
+        assert!(
+            *w > *a * 3,
+            "USB should carry far more than Wi-Fi 1: {} vs {}",
+            w,
+            a
+        );
         let total: u64 = sends.values().sum();
         assert!(total > 2000, "most packets should be scheduled: {}", total);
     }
@@ -331,7 +334,9 @@ mod tests {
         sched.update_metrics(&stats("bad", 50_000_000.0, 0.0, 5.0, 1500));
         sched.remove_path("bad");
         for _ in 0..100 {
-            let sp = sched.schedule(1000).expect("good path should always schedule");
+            let sp = sched
+                .schedule(1000)
+                .expect("good path should always schedule");
             assert_eq!(sp.path_id, "good");
         }
     }
@@ -429,13 +434,19 @@ mod tests {
         // NaN goodput must collapse to a non-schedulable weight.
         let nan = stats("p", f64::NAN, 0.0, 5.0, 1500);
         sched.update_metrics(&nan);
-        assert!(sched.schedule(100).is_none(), "NaN goodput must not schedule");
+        assert!(
+            sched.schedule(100).is_none(),
+            "NaN goodput must not schedule"
+        );
 
         // Disconnected / stale health must not schedule regardless of goodput.
         let mut disc = stats("p", 50_000_000.0, 0.0, 5.0, 1500);
         disc.health = PathHealth::Disconnected;
         sched.update_metrics(&disc);
-        assert!(sched.schedule(100).is_none(), "disconnected path must not schedule");
+        assert!(
+            sched.schedule(100).is_none(),
+            "disconnected path must not schedule"
+        );
     }
 
     #[test]
@@ -462,10 +473,21 @@ mod tests {
                 total += sp.size;
             }
         }
-        assert!(total > 0, "high volume should schedule without overflow/panic");
+        assert!(
+            total > 0,
+            "high volume should schedule without overflow/panic"
+        );
         for st in sched.paths.values() {
-            assert!(st.weight.is_finite(), "weight must remain finite: {:?}", st.weight);
-            assert!(st.deficit.is_finite(), "deficit must remain finite: {:?}", st.deficit);
+            assert!(
+                st.weight.is_finite(),
+                "weight must remain finite: {:?}",
+                st.weight
+            );
+            assert!(
+                st.deficit.is_finite(),
+                "deficit must remain finite: {:?}",
+                st.deficit
+            );
         }
     }
 

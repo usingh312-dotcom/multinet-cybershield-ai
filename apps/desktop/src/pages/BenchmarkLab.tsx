@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { PageContainer, PageHeader, SectionHeader } from "../components/ui/structure";
 import { StatusIndicator } from "../components/ui/feedback";
-import { Badge, Button, IntegrationNotice } from "../components/ui/controls";
+import { IntegrationNotice } from "../components/ui/controls";
 import { EmptyState } from "../components/ui/feedback";
-import { IconSpeed, IconShield, IconDatabase } from "../components/ui/icons";
+import { IconShield, IconDatabase, IconActivity } from "../components/ui/icons";
 
 interface SyntheticScenario {
   id: string;
@@ -16,14 +16,14 @@ interface SyntheticScenario {
   reason?: string;
 }
 
-const defaultScenarios: SyntheticScenario[] = [
+const illustrativeScenarios: SyntheticScenario[] = [
   {
     id: "synth_sched_single_path",
     name: "Single-Path Scheduler Baseline",
     tier: "SYNTHETIC",
     status: "PASS",
-    throughput: "100.0 Mbps",
-    latency: "12.0 ms",
+    throughput: "100.0 Mbps (Configured)",
+    latency: "12.0 ms (Target)",
     description: "Algorithmic validation of deficit round-robin with single path.",
   },
   {
@@ -31,8 +31,8 @@ const defaultScenarios: SyntheticScenario[] = [
     name: "Dual Equal-Capacity Paths Distribution",
     tier: "SYNTHETIC",
     status: "PASS",
-    throughput: "200.0 Mbps",
-    latency: "20.0 ms",
+    throughput: "200.0 Mbps (Configured)",
+    latency: "20.0 ms (Target)",
     description: "Balanced 50/50 packet and byte scheduling across equal paths.",
   },
   {
@@ -40,8 +40,8 @@ const defaultScenarios: SyntheticScenario[] = [
     name: "Three-Path Asymmetric Capacity Share",
     tier: "SYNTHETIC",
     status: "PASS",
-    throughput: "680.0 Mbps (Simulated)",
-    latency: "14.5 ms",
+    throughput: "680.0 Mbps (Configured Aggregate)",
+    latency: "14.5 ms (Target)",
     description: "Proportional scheduling across Fiber (500M), Starlink (120M), and 5G (60M).",
   },
   {
@@ -59,8 +59,8 @@ const defaultScenarios: SyntheticScenario[] = [
     tier: "LOOPBACK",
     status: "PASS",
     throughput: "Local Wire",
-    latency: "< 0.2 ms",
-    description: "Local 127.0.0.1 UDP transport with HMAC-SHA256 authentication tags.",
+    latency: "< 0.5 ms",
+    description: "Local 127.0.0.1 UDP transport with canonical wire framing and HMAC-SHA256 authentication.",
   },
   {
     id: "bonded_e2e_2wan",
@@ -70,7 +70,7 @@ const defaultScenarios: SyntheticScenario[] = [
     throughput: "—",
     latency: "—",
     description: "Real multi-WAN single TCP/UDP flow throughput aggregation.",
-    reason: "BLOCKED: Remote relay ingress (relay/bonding-server) is a foundation placeholder. End-to-end multi-WAN bonding requires deployed relay ingress and return-path routing.",
+    reason: "BLOCKED: Remote relay ingress (relay/bonding-server) is a foundation placeholder. End-to-end multi-WAN bonding requires deployed relay ingress and return-path routing (scheduled for NM-08.1+).",
   },
   {
     id: "bonded_e2e_failover",
@@ -80,12 +80,12 @@ const defaultScenarios: SyntheticScenario[] = [
     throughput: "—",
     latency: "—",
     description: "Uninterrupted TCP transfer across physical link disconnect.",
-    reason: "BLOCKED: TCP flow migration requires active proxy relay terminating the connection.",
+    reason: "BLOCKED: TCP flow migration requires active proxy relay terminating the connection (scheduled for NM-08.1+).",
   },
 ];
 
 export default function BenchmarkLabPage() {
-  const [selectedTab, setSelectedTab] = useState<"scenarios" | "competitor" | "cli">("scenarios");
+  const [selectedTab, setSelectedTab] = useState<"results" | "models" | "competitor" | "cli">("results");
 
   return (
     <PageContainer>
@@ -93,7 +93,7 @@ export default function BenchmarkLabPage() {
         <PageHeader
           title="MultiNet Benchmark Lab"
           subtitle="Empirical multi-tier measurement, impairment simulation, and qualification platform."
-          actions={<StatusIndicator variation="ok" label="Lab Engine Active" />}
+          actions={<StatusIndicator variation="ok" label="Lab Engine Ready" />}
         />
         <div className="mt-3">
           <IntegrationNotice>
@@ -105,14 +105,24 @@ export default function BenchmarkLabPage() {
       {/* Navigation Pills */}
       <div className="flex gap-2 border-b border-charcoal-600 pb-3 mt-4">
         <button
-          onClick={() => setSelectedTab("scenarios")}
+          onClick={() => setSelectedTab("results")}
           className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-            selectedTab === "scenarios"
+            selectedTab === "results"
               ? "bg-primary text-black font-bold"
               : "bg-surface hover:bg-elevated text-ink-secondary"
           }`}
         >
-          Qualification Scenarios (7)
+          Active Run Results
+        </button>
+        <button
+          onClick={() => setSelectedTab("models")}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            selectedTab === "models"
+              ? "bg-primary text-black font-bold"
+              : "bg-surface hover:bg-elevated text-ink-secondary"
+          }`}
+        >
+          Illustrative Reference Models
         </button>
         <button
           onClick={() => setSelectedTab("competitor")}
@@ -136,11 +146,36 @@ export default function BenchmarkLabPage() {
         </button>
       </div>
 
-      {selectedTab === "scenarios" && (
+      {selectedTab === "results" && (
         <section className="mt-4 space-y-4">
           <SectionHeader
-            title="Standard Test Scenarios"
-            description="Verified results from deterministic algorithms and local loopback wire sockets."
+            title="Benchmark Run Results"
+            description="Live execution results loaded from local netbench-cli run artifacts."
+          />
+
+          <div className="rounded-xl border border-charcoal-600 bg-elevated p-8 flex flex-col justify-center items-center text-center">
+            <EmptyState
+              icon={<IconActivity size={28} />}
+              title="No Benchmark Run Loaded"
+              description="Execute 'netbench-cli run' to run the deterministic test suite, or 'netbench-cli baseline --enable-live-network-tests' to measure a live interface baseline."
+            />
+            <div className="mt-4">
+              <button
+                onClick={() => setSelectedTab("models")}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-charcoal-800 hover:bg-charcoal-700 text-ink-primary border border-charcoal-600"
+              >
+                View Illustrative Reference Models →
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {selectedTab === "models" && (
+        <section className="mt-4 space-y-4">
+          <SectionHeader
+            title="Illustrative Reference Models"
+            description="Algorithmic specification models and target scenarios. These values represent simulated mathematical constraints, not live physical WAN throughput."
           />
 
           <div className="rounded-xl2 border border-charcoal-600 bg-elevated shadow-panel overflow-hidden">
@@ -151,13 +186,13 @@ export default function BenchmarkLabPage() {
                     <th className="p-3">Scenario Name</th>
                     <th className="p-3">Evidence Tier</th>
                     <th className="p-3">Status</th>
-                    <th className="p-3">Throughput</th>
-                    <th className="p-3">Latency</th>
-                    <th className="p-3">Technical Details & Rationale</th>
+                    <th className="p-3">Capacity Model</th>
+                    <th className="p-3">Latency Model</th>
+                    <th className="p-3">Technical Details & Architectural Rationale</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-charcoal-600/60 font-sans">
-                  {defaultScenarios.map((sc) => (
+                  {illustrativeScenarios.map((sc) => (
                     <tr key={sc.id} className="hover:bg-charcoal-700/30">
                       <td className="p-3 font-medium text-white">{sc.name}</td>
                       <td className="p-3">
@@ -206,11 +241,12 @@ export default function BenchmarkLabPage() {
             <div className="rounded-xl border border-charcoal-600 bg-elevated p-4">
               <h4 className="text-xs font-bold uppercase tracking-wider text-sky-400 mb-2">Fairness Guardrails</h4>
               <ul className="text-xs space-y-2 text-ink-secondary">
-                <li>• <strong>Identical Platform:</strong> Same host, OS version, CPU, and RAM.</li>
-                <li>• <strong>Matching WANs:</strong> Identical active adapters and physical uplinks.</li>
-                <li>• <strong>Contemporaneous:</strong> Standalone baselines measured within the same 60-minute window.</li>
-                <li>• <strong>Sample Rigor:</strong> Minimum of 5 measured repetitions per mode.</li>
-                <li>• <strong>No Falsification:</strong> Synthetic data is strictly forbidden from competitor comparison.</li>
+                <li>• <strong>Identical Platform:</strong> Same host, OS platform, CPU architecture, and RAM.</li>
+                <li>• <strong>Matching WANs:</strong> Identical active adapters and physical uplinks (within 15% baseline tolerance).</li>
+                <li>• <strong>Matching Topology:</strong> Single-interface baselines cannot be compared to multi-WAN bonded tunnels.</li>
+                <li>• <strong>Contemporaneous:</strong> Standalone baselines measured within the same active testing window.</li>
+                <li>• <strong>Sample Rigor:</strong> Minimum of 5 valid, non-negative, finite measured repetitions per mode.</li>
+                <li>• <strong>No Falsification:</strong> Synthetic and loopback data are strictly forbidden from competitor comparison.</li>
               </ul>
             </div>
 
@@ -218,7 +254,7 @@ export default function BenchmarkLabPage() {
               <EmptyState
                 icon={<IconShield size={24} />}
                 title="No Competitor Import Yet"
-                description="Import Speedify measurement records using 'netbench-cli competitor-import --input <file.csv>' to view comparison tables."
+                description="Import Speedify measurement records using 'netbench-cli competitor-import --input <file.csv>' to evaluate comparability."
               />
             </div>
           </div>
@@ -245,10 +281,13 @@ export default function BenchmarkLabPage() {
               <p className="text-ink-secondary font-sans font-semibold mb-1"># Import Competitor Measurements</p>
               <p className="bg-charcoal-900 p-2 rounded border border-charcoal-700">cargo run -p netbench-cli -- competitor-import --input speedify-sample.csv --output artifacts/benchmark/competitor</p>
             </div>
+            <div>
+              <p className="text-ink-secondary font-sans font-semibold mb-1"># Compare MultiNet Run With Competitor Record</p>
+              <p className="bg-charcoal-900 p-2 rounded border border-charcoal-700">cargo run -p netbench-cli -- compare --multi-net artifacts/benchmark/runs/&lt;run_id&gt; --competitor artifacts/benchmark/competitor/&lt;record_id&gt;.json --output artifacts/benchmark/comparisons</p>
+            </div>
           </div>
         </section>
       )}
     </PageContainer>
   );
 }
-

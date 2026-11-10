@@ -116,7 +116,10 @@ async fn download(
         .into_response())
 }
 
-async fn upload(State(state): State<AppState>, body: Bytes) -> Result<Json<serde_json::Value>, ApiError> {
+async fn upload(
+    State(state): State<AppState>,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, ApiError> {
     let _permit = acquire(&state)?;
     if body.is_empty() {
         return Err(ApiError::Invalid("empty upload body".into()));
@@ -170,14 +173,13 @@ fn parse_args() -> Result<(SocketAddr, Option<String>, Option<String>, u64, Stri
         ));
     }
 
-    let bind = bind.parse::<SocketAddr>().map_err(|e| format!("invalid --bind: {e}"))?;
+    let bind = bind
+        .parse::<SocketAddr>()
+        .map_err(|e| format!("invalid --bind: {e}"))?;
     Ok((bind, cert, key, max_bytes, name))
 }
 
-fn load_tls(
-    cert: Option<String>,
-    key: Option<String>,
-) -> Result<(Vec<u8>, Vec<u8>), String> {
+fn load_tls(cert: Option<String>, key: Option<String>) -> Result<(Vec<u8>, Vec<u8>), String> {
     match (cert, key) {
         (Some(cert_path), Some(key_path)) => {
             let cert_pem = std::fs::read(&cert_path)

@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::net::{SocketAddr, UdpSocket};
-use tunnel_protocol::FramingLayer;
+use tunnel_protocol::{encode_frame, FramingLayer};
 
 use crate::path_manager::PathStats;
 use crate::scheduler::{ScheduledPacket, WeightedPacketScheduler};
@@ -69,8 +69,7 @@ impl BondedSocket {
     }
 
     pub fn remove_path(&mut self, path_id: &str) -> bool {
-        self.sockets.remove(path_id).is_some()
-            && self.scheduler.remove_path(path_id)
+        self.sockets.remove(path_id).is_some() && self.scheduler.remove_path(path_id)
     }
 
     pub fn update_metrics(&mut self, stats: &PathStats) {
@@ -89,7 +88,7 @@ impl BondedSocket {
             .framing
             .encapsulate(payload.to_vec())
             .map_err(|e| SocketError::Framing(e.to_string()))?;
-        let wire = serialize_frame(&frame);
+        let wire = encode_frame(&frame);
         let entry = self
             .sockets
             .get(&scheduled.path_id)
@@ -113,16 +112,4 @@ impl BondedSocket {
     pub fn eligible_count(&self) -> usize {
         self.scheduler.eligible_count()
     }
-}
-
-fn serialize_frame(frame: &tunnel_protocol::PacketFrame) -> Vec<u8> {
-    let mut out = Vec::with_capacity(
-        2 + 8 + 1 + 32 + frame.payload.len(),
-    );
-    out.extend_from_slice(&(frame.header.length as u16).to_le_bytes());
-    out.extend_from_slice(&frame.header.seq_no.to_le_bytes());
-    out.push(frame.header.flags);
-    out.extend_from_slice(&frame.header.auth_tag);
-    out.extend_from_slice(&frame.payload);
-    out
 }

@@ -1,4 +1,4 @@
-﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod db;
 mod diagnostics;
@@ -30,13 +30,13 @@ fn get_foundation_status() -> FoundationStatus {
 }
 
 #[tauri::command]
-async fn get_database_status(state: tauri::State<'_, DatabaseState>) -> Result<db::DbStatus, String> {
+async fn get_database_status(
+    state: tauri::State<'_, DatabaseState>,
+) -> Result<db::DbStatus, String> {
     // Legacy string-error contract (pre-existing command): preserved to not
     // destabilize existing frontend behavior.
     let state = state.inner();
-    db::database_status(state)
-        .await
-        .map_err(|e| e.to_string())
+    db::database_status(state).await.map_err(|e| e.to_string())
 }
 
 /// Structured error contract — applied to NEW commands only (Day 10 onward).
@@ -203,11 +203,20 @@ fn main() {
         .setup(|app| {
             let data_dir = std::env::var_os("MULTINET_DATA_DIR")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from(".")));
-            let database_state = tauri::async_runtime::block_on(db::initialize_database(&data_dir))?;
-            let policy = HumanApprovalPolicy::new(SqliteAuditSink::new(database_state.pool.clone()));
+                .unwrap_or_else(|| {
+                    app.path()
+                        .app_data_dir()
+                        .unwrap_or_else(|_| PathBuf::from("."))
+                });
+            let database_state =
+                tauri::async_runtime::block_on(db::initialize_database(&data_dir))?;
+            let policy =
+                HumanApprovalPolicy::new(SqliteAuditSink::new(database_state.pool.clone()));
             let diagnostics = Arc::new(diagnostics::DiagnosticsState::new());
-            diagnostics::spawn_traffic_monitor(Arc::clone(&diagnostics), database_state.pool.clone());
+            diagnostics::spawn_traffic_monitor(
+                Arc::clone(&diagnostics),
+                database_state.pool.clone(),
+            );
             app.manage(SecurityState { policy });
             app.manage(database_state);
             app.manage(diagnostics);

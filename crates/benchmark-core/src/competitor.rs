@@ -210,13 +210,29 @@ pub fn parse_competitor_csv(csv_content: &str) -> Result<Vec<CompetitorRecord>, 
     let mut records = Vec::new();
     let mut lines = csv_content.lines().peekable();
 
-    // Check header
-    if let Some(header) = lines.next() {
-        if !header.contains("product") || !header.contains("samples") {
+    // Check header, skipping comment or empty lines
+    let mut found_header = false;
+    while let Some(&line) = lines.peek() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            lines.next();
+            continue;
+        }
+        if trimmed.contains("product") && trimmed.contains("samples") {
+            found_header = true;
+            lines.next();
+            break;
+        } else {
             return Err(CompetitorError::CsvParse(
                 "missing required header fields (product, samples)".into(),
             ));
         }
+    }
+
+    if !found_header {
+        return Err(CompetitorError::CsvParse(
+            "missing required header fields (product, samples)".into(),
+        ));
     }
 
     for (line_idx, line) in lines.enumerate() {

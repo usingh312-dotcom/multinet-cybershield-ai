@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 export type NavId =
-  | "overview" | "network-manager" | "internet-bonding" | "traffic-analytics" | "speed-test"
+  | "overview" | "network-manager" | "internet-bonding" | "traffic-analytics" | "speed-test" | "benchmark-lab"
   | "security-overview" | "threat-detection" | "threat-intelligence" | "endpoint-security" | "dns-protection"
   | "ai-firewall" | "incident-response" | "security-reports" | "ai-copilot" | "settings";
 
@@ -26,7 +26,8 @@ export const moduleGroups: { parent: NavParentId; label: string; items: NavChild
     label: "Diagnostics",
     items: [
       { id: "traffic-analytics", label: "Traffic Analytics" },
-      { id: "speed-test", label: "Speed Test" }
+      { id: "speed-test", label: "Speed Test" },
+      { id: "benchmark-lab", label: "Benchmark Lab" }
     ]
   },
   {
@@ -82,6 +83,7 @@ export const navItems: { id: NavId; label: string; group: string }[] = [
   { id: "internet-bonding", label: "Internet Bonding", group: "Network" },
   { id: "traffic-analytics", label: "Traffic Analytics", group: "Diagnostics" },
   { id: "speed-test", label: "Speed Test", group: "Diagnostics" },
+  { id: "benchmark-lab", label: "Benchmark Lab", group: "Diagnostics" },
   { id: "security-overview", label: "Security Overview", group: "Security Center" },
   { id: "threat-detection", label: "Threat Detection", group: "Security Center" },
   { id: "threat-intelligence", label: "Threat Intelligence", group: "Security Center" },

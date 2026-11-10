@@ -14,6 +14,7 @@ const NetworkManagerPage = lazy(() => import("./pages/NetworkManager"));
 const InternetBondingPage = lazy(() => import("./pages/InternetBonding"));
 const TrafficAnalyticsPage = lazy(() => import("./pages/TrafficAnalytics"));
 const SpeedTestPage = lazy(() => import("./pages/SpeedTest"));
+const BenchmarkLabPage = lazy(() => import("./pages/BenchmarkLab"));
 const IncidentResponsePage = lazy(() => import("./pages/IncidentResponse"));
 const SettingsPage = lazy(() => import("./pages/Settings"));
 const SecurityOverviewPage = lazy(() => import("./pages/SecurityOverview"));
@@ -56,6 +57,7 @@ export default function App() {
           : active === "internet-bonding" ? <InternetBondingPage />
           : active === "traffic-analytics" ? <TrafficAnalyticsPage />
           : active === "speed-test" ? <SpeedTestPage />
+          : active === "benchmark-lab" ? <BenchmarkLabPage />
           : active === "incident-response" ? <IncidentResponsePage />
           : active === "settings" ? <SettingsPage />
           : active === "security-overview" ? <SecurityOverviewPage />

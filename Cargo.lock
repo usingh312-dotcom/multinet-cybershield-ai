@@ -246,6 +246,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
+name = "benchmark-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bonding-engine",
+ "network-core",
+ "serde",
+ "serde_json",
+ "speed-test",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "tracing",
+ "tunnel-protocol",
+ "uuid",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2416,6 +2434,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys 0.3.1",
+]
+
+[[package]]
+name = "netbench-cli"
+version = "0.1.0"
+dependencies = [
+ "benchmark-core",
+ "serde",
+ "serde_json",
+ "speed-test",
+ "time",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

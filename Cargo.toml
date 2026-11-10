@@ -22,6 +22,8 @@ members = [
   "crates/ai-orchestrator",
   "crates/telemetry",
   "crates/audit-logger",
+  "crates/benchmark-core",
+  "crates/netbench-cli",
   "relay/bonding-server",
   "relay/session-manager",
   "relay/security-api",
@@ -84,3 +86,4 @@ audit-logger = { path = "crates/audit-logger" }
 security-policy = { path = "crates/security-policy" }
 bonding-engine = { path = "crates/bonding-engine" }
 tunnel-protocol = { path = "crates/tunnel-protocol" }
+benchmark-core = { path = "crates/benchmark-core" }

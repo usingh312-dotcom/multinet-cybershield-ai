@@ -296,6 +296,16 @@ impl ImpairmentChannel {
             false
         };
 
+        let packet = InFlightPacket {
+            seq_no,
+            payload: payload.clone(),
+            enqueue_time_ms: virtual_now_ms,
+            delivery_time_ms,
+            is_duplicate: false,
+            is_reordered,
+        };
+        self.queue.push_back(packet);
+
         // Check duplication: duplicate packets also traverse the link and consume transmission time
         let dup_roll = self.rng.next_f64() * 100.0;
         if dup_roll < self.profile.duplication_pct {
@@ -311,7 +321,7 @@ impl ImpairmentChannel {
                 dup_tx_start + wire_time_ms + self.profile.base_latency_ms + jitter + 1;
             let dup_packet = InFlightPacket {
                 seq_no,
-                payload: payload.clone(),
+                payload,
                 enqueue_time_ms: virtual_now_ms,
                 delivery_time_ms: dup_delivery,
                 is_duplicate: true,
@@ -319,16 +329,6 @@ impl ImpairmentChannel {
             };
             self.queue.push_back(dup_packet);
         }
-
-        let packet = InFlightPacket {
-            seq_no,
-            payload,
-            enqueue_time_ms: virtual_now_ms,
-            delivery_time_ms,
-            is_duplicate: false,
-            is_reordered,
-        };
-        self.queue.push_back(packet);
 
         Ok(true)
     }

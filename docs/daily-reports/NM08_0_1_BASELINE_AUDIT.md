@@ -96,3 +96,4 @@ Milestone **NM-08.0.1** is the focused remediation milestone dedicated to elimin
 | **P1.4** | iperf3 Hardening | `crates/benchmark-core/src/providers/iperf3.rs` | Process timeout and child kill. Tier classified (`Loopback` vs `LiveInterface` opt-in). Zero/negative throughput fails closed. |
 | **P1.5** | Desktop UI Clean State | `apps/desktop/src/pages/BenchmarkLab.tsx` | Removed hardcoded PASS cards. Added empty state for runs. Illustrative reference models clearly labeled. |
 | **P1.6** | Qualification Suite | `packaging/test-benchmark-qualification.ps1` | Individual assertions for all 15 test IDs (10 PASS, 5 BLOCKED). Strict non-empty rationale verification. |
+

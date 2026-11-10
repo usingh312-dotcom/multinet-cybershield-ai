@@ -149,6 +149,13 @@ pub fn is_loopback_host(url: &reqwest::Url) -> bool {
             .unwrap_or(false)
 }
 
+pub fn is_loopback_url_str(url_str: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(url_str) else {
+        return false;
+    };
+    is_loopback_host(&url)
+}
+
 fn validate(config: &SpeedTestConfig) -> Result<reqwest::Url, SpeedTestError> {
     let url = reqwest::Url::parse(&config.server_url)
         .map_err(|e| SpeedTestError::InvalidConfig(format!("server URL: {e}")))?;

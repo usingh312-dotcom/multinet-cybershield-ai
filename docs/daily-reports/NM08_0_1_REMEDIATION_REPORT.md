@@ -126,3 +126,4 @@ Every modification adheres to our core engineering principles:
   - Asserted all 5 BLOCKED test IDs individually by name and verified non-empty architectural rationales starting with `"BLOCKED:"`.
   - Verified suite integrity (10 PASS, 5 BLOCKED, 0 FAIL).
   - Updated qualification milestone to `NM-08.0.1`.
+

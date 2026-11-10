@@ -15,7 +15,7 @@ use benchmark_core::models::{
 };
 use benchmark_core::providers::live::run_live_baseline;
 use benchmark_core::reports;
-use speed_test::is_loopback_host;
+use speed_test::is_loopback_url_str;
 use std::env;
 use std::fs;
 use std::net::IpAddr;
@@ -189,15 +189,7 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let parsed_url = match reqwest::Url::parse(&server_url) {
-        Ok(u) => u,
-        Err(e) => {
-            eprintln!("[netbench-cli] ERROR: Invalid server URL: {}", e);
-            return ExitCode::from(1);
-        }
-    };
-
-    if allow_self_signed && !is_loopback_host(&parsed_url) {
+    if allow_self_signed && !is_loopback_url_str(&server_url) {
         eprintln!("[netbench-cli] ERROR: '--allow-self-signed-loopback' is strictly forbidden for non-loopback endpoints.");
         return ExitCode::from(1);
     }
@@ -262,7 +254,7 @@ async fn handle_baseline(args: &[String]) -> ExitCode {
             "summary.md",
             reports::markdown::generate_summary_markdown(&run),
         ),
-        ("results.csv", reports::csv::generate_results_csv(&run)),
+        ("results.csv", reports::csv::generate_run_csv(&run)),
     ];
 
     for (fname, content) in writes {

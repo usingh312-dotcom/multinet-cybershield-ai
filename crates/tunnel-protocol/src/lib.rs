@@ -1,4 +1,4 @@
-﻿//! tunnel-protocol — foundation stub (Phase 1). No production logic; no system mutations.
+//! tunnel-protocol — foundation stub (Phase 1). No production logic; no system mutations.
 //! Authenticated packet framing lives in [`crate::framing`].
 
 #[allow(dead_code)]

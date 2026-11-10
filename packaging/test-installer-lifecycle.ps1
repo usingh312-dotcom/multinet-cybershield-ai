@@ -110,6 +110,23 @@ Assert-Step "Execute MSI Clean Silent Installation" {
 # 3. Verify Installed Binaries & Signatures
 Write-Host "`n--- Stage 3: Installed Assets & File Verification ---" -ForegroundColor Yellow
 
+# Dynamically locate the actual installation directory
+$resolvedDir = "C:\Program Files\MultiNet CyberShield AI"
+if (-not (Test-Path $resolvedDir)) {
+    $alt = "C:\Program Files (x86)\MultiNet CyberShield AI"
+    if (Test-Path $alt) {
+        $resolvedDir = $alt
+    } else {
+        $svcEntry = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
+        if ($svcEntry -and $svcEntry.PathName) {
+            $exe = $svcEntry.PathName.Trim('"').Trim()
+            $resolvedDir = Split-Path -Parent $exe
+        }
+    }
+}
+$InstallDir = $resolvedDir
+Write-Host "Resolved Installation Directory: $InstallDir" -ForegroundColor Cyan
+
 $desktopExe = Join-Path $InstallDir "multinet-cybershield-ai.exe"
 Assert-Step "Desktop GUI installed: multinet-cybershield-ai.exe" {
     (Test-Path $desktopExe) -and ((Get-Item $desktopExe).Length -gt 1000000)

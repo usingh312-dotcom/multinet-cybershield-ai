@@ -51,3 +51,4 @@ On startup, `net-merge-service.exe` executes `svcrunner.RunDisasterRecovery()` b
 1. **Crash File Check:** Inspects `%TEMP%\net-merge-service-weakhost.txt`. If present, parses saved interface index and weak-host parameters, issuing `netsh interface <fam> set interface interface=<id> weakhostsend=<val> forwarding=<val>` to restore original physical settings.
 2. **Orphaned Route Sweep:** Scans the Windows routing table for lingering `0.0.0.0/1` and `128.0.0.0/1` routes and deletes them if no active Wintun session is running.
 3. **Graceful Engine Shutdown:** Releases kernel mode mutex (`Global\multinet-netmerge-mode-owner-v1`), removes capture routes, and deletes temporary tracking state.
+

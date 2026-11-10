@@ -6,6 +6,7 @@
            Version="0.1.0"
            UpgradeCode="{4E8D7F91-C8A2-4D3B-98F1-2B8C67D3A109}"
            Scope="perMachine"
+           Arch="x64"
            Compressed="yes">
 
     <SummaryInformation Description="MultiNet CyberShield AI - Intelligent Multi-Link Network Protection and Bonding"

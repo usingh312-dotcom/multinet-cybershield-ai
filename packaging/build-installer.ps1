@@ -154,7 +154,7 @@ if ($WixInstalled) {
     Write-Host "Building MSI installer using WiX Toolset v5..." -ForegroundColor Cyan
     $env:WIX_ACCEPT_EULA = "yes"
     $WxsPath = Join-Path $ScriptDir "wix\MultiNetCyberShield.wxs"
-    & wix build $WxsPath -d "SourceDir=$FullStaging" -o $MsiOutput
+    & wix build $WxsPath -arch x64 -d "SourceDir=$FullStaging" -o $MsiOutput
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $MsiOutput)) {
         throw "WiX build failed with exit code $LASTEXITCODE"
     }

@@ -53,3 +53,4 @@ In cloud CI environments (GitHub Actions Windows Server 2025 runners):
 - Multi-interface bonding and physical cable disconnect/reconnect cannot be physically simulated on a single-NIC cloud runner.
 - Dual-NIC failover, round-robin transmission, and weighted multi-path latency bonding were previously tested on physical dual-NIC test machines and dedicated Hyper-V multi-adapter virtual machines.
 - Cloud CI safely verifies baseline capture, state parsing, disaster recovery code paths, zero route drift, and MSI lifecycle integrity without destructive network manipulation.
+

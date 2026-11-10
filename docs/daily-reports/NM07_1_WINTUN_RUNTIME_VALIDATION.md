@@ -70,3 +70,4 @@ func CheckDriver() error {
 }
 ```
 Installing `wintun.dll` in both the application root and `drivers\` satisfies standard Windows DLL search rules, driver file inventory standards, and legacy tool expectations.
+

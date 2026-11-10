@@ -75,3 +75,4 @@ The test harness exercises the complete lifecycle through silent Windows Install
 3. **Service Registration:** Queries `Get-Service -Name "MultiNetNetMerge"`.
 4. **Repair Simulation:** Intentionally deletes `drivers\wintun.dll`, then executes `msiexec.exe /fa MultiNetCyberShield-Setup.msi /qn /l*v msi-repair.log`, verifying that the key file is restored.
 5. **Clean Removal:** Executes `msiexec.exe /x MultiNetCyberShield-Setup.msi /qn /l*v msi-uninstall.log`, verifying SCM service deletion, directory cleanup, and zero orphaned routes.
+

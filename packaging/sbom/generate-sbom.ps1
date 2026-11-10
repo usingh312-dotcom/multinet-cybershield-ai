@@ -1,5 +1,5 @@
 # MultiNet CyberShield AI - Software Bill of Materials (SBOM) & Inventory Generator
-# Conforms to CycloneDX v1.5 JSON Specification & Full Supply Chain Traceability
+# Conforms to CycloneDX v1.5 JSON Specification with Dependency Graph & Supply Chain Traceability
 param (
     [string]$OutputDir = "..\output"
 )
@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Force -Path $FullOutput | Out-Null
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "MultiNet CyberShield AI - Supply Chain & SBOM Generator" -ForegroundColor Cyan
+Write-Host "Format: CycloneDX v1.5 JSON + Dependency Relationship Graph" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # License mapping database for Go modules
@@ -33,33 +34,34 @@ $GoLicenseMap = @{
 
 # License mapping database for popular Rust crates
 $RustLicenseMap = @{
-    "serde"           = "MIT OR Apache-2.0"
-    "serde_json"      = "MIT OR Apache-2.0"
-    "tokio"           = "MIT"
-    "axum"            = "MIT"
-    "axum-server"     = "MIT"
-    "reqwest"         = "MIT OR Apache-2.0"
-    "rustls"          = "Apache-2.0 OR ISC OR MIT"
-    "ring"            = "ISC AND OpenSSL AND MIT"
-    "rcgen"           = "MIT OR Apache-2.0"
-    "tower-http"      = "MIT"
-    "sqlx"            = "MIT OR Apache-2.0"
-    "thiserror"       = "MIT OR Apache-2.0"
-    "tracing"         = "MIT"
-    "uuid"            = "Apache-2.0 OR MIT"
-    "time"            = "MIT OR Apache-2.0"
-    "async-trait"     = "MIT OR Apache-2.0"
-    "hmac"            = "MIT OR Apache-2.0"
-    "sha2"            = "MIT OR Apache-2.0"
-    "windows-sys"     = "MIT OR Apache-2.0"
-    "tauri"           = "Apache-2.0 OR MIT"
-    "tauri-build"     = "Apache-2.0 OR MIT"
+    "serde"              = "MIT OR Apache-2.0"
+    "serde_json"         = "MIT OR Apache-2.0"
+    "tokio"              = "MIT"
+    "axum"               = "MIT"
+    "axum-server"        = "MIT"
+    "reqwest"            = "MIT OR Apache-2.0"
+    "rustls"             = "Apache-2.0 OR ISC OR MIT"
+    "ring"               = "ISC AND OpenSSL AND MIT"
+    "rcgen"              = "MIT OR Apache-2.0"
+    "tower-http"         = "MIT"
+    "sqlx"               = "MIT OR Apache-2.0"
+    "thiserror"          = "MIT OR Apache-2.0"
+    "tracing"            = "MIT"
+    "uuid"               = "Apache-2.0 OR MIT"
+    "time"               = "MIT OR Apache-2.0"
+    "async-trait"        = "MIT OR Apache-2.0"
+    "hmac"               = "MIT OR Apache-2.0"
+    "sha2"               = "MIT OR Apache-2.0"
+    "windows-sys"        = "MIT OR Apache-2.0"
+    "tauri"              = "Apache-2.0 OR MIT"
+    "tauri-build"        = "Apache-2.0 OR MIT"
     "tauri-plugin-shell" = "Apache-2.0 OR MIT"
 }
 
 # 1. Parse Go Dependencies from services/net-merge/go.mod
 $GoModPath = Join-Path $RepoRoot "services\net-merge\go.mod"
 $GoComponents = @()
+$DirectGoRefs = @()
 
 if (Test-Path $GoModPath) {
     Write-Host "Parsing Go dependencies from $GoModPath..." -ForegroundColor Cyan
@@ -70,6 +72,7 @@ if (Test-Path $GoModPath) {
             $modName = $matches[1]
             $modVer = $matches[2]
             $isDirect = -not [bool]$matches[3]
+            $bomRef = "pkg:golang/$modName@$modVer"
             
             $lic = $GoLicenseMap[$modName]
             if (-not $lic) {
@@ -79,6 +82,10 @@ if (Test-Path $GoModPath) {
                 else { $lic = "Apache-2.0" }
             }
 
+            if ($isDirect) {
+                $DirectGoRefs += $bomRef
+            }
+
             $GoComponents += [PSCustomObject]@{
                 "Ecosystem" = "Go"
                 "Name"      = $modName
@@ -86,15 +93,19 @@ if (Test-Path $GoModPath) {
                 "Direct"    = $isDirect
                 "License"   = $lic
                 "Publisher" = ($modName.Split('/')[0])
+                "BomRef"    = $bomRef
             }
         }
     }
-    Write-Host "  Extracted $($GoComponents.Count) Go modules (Direct: $(($GoComponents | Where-Object { $_.Direct }).Count))." -ForegroundColor Green
+    Write-Host "  Extracted $($GoComponents.Count) Go modules (Direct: $($DirectGoRefs.Count))." -ForegroundColor Green
 }
 
 # 2. Parse Rust Dependencies from Cargo.lock
 $CargoLockPath = Join-Path $RepoRoot "Cargo.lock"
 $RustComponents = @()
+$CrateNameToRef = @{}
+$CrateDependencies = @{}
+$DirectRustRefs = @()
 
 # Read root Cargo.toml to identify direct workspace dependencies
 $RootCargoToml = Join-Path $RepoRoot "Cargo.toml"
@@ -112,17 +123,45 @@ if (Test-Path $RootCargoToml) {
 }
 
 if (Test-Path $CargoLockPath) {
-    Write-Host "Parsing Rust dependencies from $CargoLockPath..." -ForegroundColor Cyan
+    Write-Host "Parsing Rust dependencies and relationships from $CargoLockPath..." -ForegroundColor Cyan
     $lockContent = Get-Content $CargoLockPath -Raw
-    $packages = [regex]::Matches($lockContent, '\[\[package\]\]\r?\nname\s*=\s*"([^"]+)"\r?\nversion\s*=\s*"([^"]+)"(?:\r?\nsource\s*=\s*"([^"]+)")?')
-    foreach ($pkg in $packages) {
-        $pkgName = $pkg.Groups[1].Value
-        $pkgVer = $pkg.Groups[2].Value
-        $source = if ($pkg.Groups.Count -gt 3) { $pkg.Groups[3].Value } else { "" }
+    $packageBlocks = $lockContent -split '\[\[package\]\]'
+    
+    foreach ($block in $packageBlocks) {
+        if ($block -match 'name\s*=\s*"([^"]+)"') {
+            $pkgName = $matches[1]
+        } else {
+            continue
+        }
         
+        if ($block -match 'version\s*=\s*"([^"]+)"') {
+            $pkgVer = $matches[1]
+        } else {
+            continue
+        }
+        
+        $source = if ($block -match 'source\s*=\s*"([^"]+)"') { $matches[1] } else { "" }
         $isWorkspaceMember = [string]::IsNullOrEmpty($source)
         $isDirect = $DirectRustDeps -contains $pkgName -or $isWorkspaceMember
+        $bomRef = "pkg:cargo/$pkgName@$pkgVer"
         
+        $CrateNameToRef[$pkgName] = $bomRef
+        if ($isDirect) {
+            $DirectRustRefs += $bomRef
+        }
+
+        # Extract declared dependencies
+        $deps = @()
+        if ($block -match 'dependencies\s*=\s*\[([^\]]*)\]') {
+            $depMatches = [regex]::Matches($matches[1], '"([^"]+)"')
+            foreach ($dm in $depMatches) {
+                $depEntry = $dm.Groups[1].Value.Trim()
+                $depName = ($depEntry -split '\s+')[0]
+                $deps += $depName
+            }
+        }
+        $CrateDependencies[$bomRef] = $deps
+
         $lic = $RustLicenseMap[$pkgName]
         if (-not $lic) {
             if ($isWorkspaceMember) {
@@ -141,19 +180,23 @@ if (Test-Path $CargoLockPath) {
             "Direct"    = $isDirect
             "License"   = $lic
             "Publisher" = if ($isWorkspaceMember) { "MultiNet CyberShield AI Authors" } else { "crates.io" }
+            "BomRef"    = $bomRef
         }
     }
-    Write-Host "  Extracted $($RustComponents.Count) Rust packages (Direct: $(($RustComponents | Where-Object { $_.Direct }).Count))." -ForegroundColor Green
+    Write-Host "  Extracted $($RustComponents.Count) Rust packages (Direct: $($DirectRustRefs.Count))." -ForegroundColor Green
 }
 
 # 3. Parse Frontend Dependencies from apps/desktop/package.json
 $NpmComponents = @()
+$DirectNpmRefs = @()
 $DesktopPkgPath = Join-Path $RepoRoot "apps\desktop\package.json"
 if (Test-Path $DesktopPkgPath) {
     Write-Host "Parsing Desktop frontend dependencies from $DesktopPkgPath..." -ForegroundColor Cyan
     $pkgJson = Get-Content $DesktopPkgPath -Raw | ConvertFrom-Json
     if ($pkgJson.dependencies) {
         foreach ($prop in $pkgJson.dependencies.PSObject.Properties) {
+            $bomRef = "pkg:npm/$($prop.Name)@$($prop.Value)"
+            $DirectNpmRefs += $bomRef
             $NpmComponents += [PSCustomObject]@{
                 "Ecosystem" = "npm"
                 "Name"      = $prop.Name
@@ -161,6 +204,7 @@ if (Test-Path $DesktopPkgPath) {
                 "Direct"    = $true
                 "License"   = if ($prop.Name -like "@tauri-apps*") { "Apache-2.0 OR MIT" } else { "MIT" }
                 "Publisher" = "npm"
+                "BomRef"    = $bomRef
             }
         }
     }
@@ -168,6 +212,7 @@ if (Test-Path $DesktopPkgPath) {
 }
 
 # 4. Third-Party Driver Inventory (Authentic WireGuard LLC Wintun)
+$DriverBomRef = "pkg:generic/wintun.dll@0.14.1"
 $DriverComponents = @(
     [PSCustomObject]@{
         "Ecosystem" = "Windows Kernel / Native Driver"
@@ -176,16 +221,20 @@ $DriverComponents = @(
         "Direct"    = $true
         "License"   = "BSD-3-Clause"
         "Publisher" = "WireGuard LLC / Jason A. Donenfeld"
+        "BomRef"    = $DriverBomRef
     }
 )
 
 # 5. Generate Combined Inventory CSV
 $AllComponents = $GoComponents + $RustComponents + $NpmComponents + $DriverComponents
 $CsvPath = Join-Path $FullOutput "dependency-inventory.csv"
-$AllComponents | Export-Csv -Path $CsvPath -NoTypeInformation -Encoding utf8
+$AllComponents | Select-Object Ecosystem, Name, Version, Direct, License, Publisher | Export-Csv -Path $CsvPath -NoTypeInformation -Encoding utf8
 Write-Host "`n[OK] Wrote Dependency Inventory CSV ($($AllComponents.Count) components): $CsvPath" -ForegroundColor Green
 
-# 6. Generate CycloneDX v1.5 JSON SBOM
+# 6. Generate CycloneDX v1.5 JSON SBOM with Components & Dependency Graph
+$RootBomRef = "pkg:generic/multinet-cybershield-ai@0.1.0-beta.1"
+$AllDirectRefs = $DirectGoRefs + $DirectRustRefs + $DirectNpmRefs + @($DriverBomRef)
+
 $CycloneComponents = @()
 foreach ($c in $AllComponents) {
     $licenseObj = @()
@@ -208,14 +257,43 @@ foreach ($c in $AllComponents) {
         default { "generic" }
     }
 
-    $CycloneComponents += @{
+    $CycloneComponents += [ordered]@{
+        "bom-ref"   = $c.BomRef
         "type"      = $compType
         "name"      = $c.Name
         "version"   = $c.Version
         "scope"     = if ($c.Direct) { "required" } else { "optional" }
         "licenses"  = $licenseObj
-        "purl"      = "pkg:$ecoName/$($c.Name)@$($c.Version)"
+        "purl"      = $c.BomRef
         "publisher" = $c.Publisher
+    }
+}
+
+# Build Dependency Relationships
+$DependencyGraph = @()
+
+# Root Application depends on all direct dependencies
+$DependencyGraph += [ordered]@{
+    "ref"       = $RootBomRef
+    "dependsOn" = $AllDirectRefs
+}
+
+# Each crate depends on its declared sub-dependencies
+foreach ($crateBomRef in $CrateDependencies.Keys) {
+    $depNames = $CrateDependencies[$crateBomRef]
+    if ($depNames.Count -gt 0) {
+        $resolvedChildRefs = @()
+        foreach ($dName in $depNames) {
+            if ($CrateNameToRef.ContainsKey($dName)) {
+                $resolvedChildRefs += $CrateNameToRef[$dName]
+            }
+        }
+        if ($resolvedChildRefs.Count -gt 0) {
+            $DependencyGraph += [ordered]@{
+                "ref"       = $crateBomRef
+                "dependsOn" = $resolvedChildRefs
+            }
+        }
     }
 }
 
@@ -230,10 +308,11 @@ $CycloneDX = [ordered]@{
             @{
                 "vendor"  = "MultiNet CyberShield AI"
                 "name"    = "generate-sbom.ps1"
-                "version" = "1.0.0"
+                "version" = "1.1.0"
             }
         )
         "component" = [ordered]@{
+            "bom-ref"     = $RootBomRef
             "type"        = "application"
             "name"        = "MultiNet CyberShield AI"
             "version"     = "0.1.0-beta.1"
@@ -241,11 +320,12 @@ $CycloneDX = [ordered]@{
         }
     }
     "components"   = $CycloneComponents
+    "dependencies" = $DependencyGraph
 }
 
 $SbomPath = Join-Path $FullOutput "sbom.json"
 $CycloneDX | ConvertTo-Json -Depth 8 | Set-Content -Path $SbomPath -Encoding utf8
-Write-Host "[OK] Wrote CycloneDX v1.5 JSON SBOM: $SbomPath" -ForegroundColor Green
+Write-Host "[OK] Wrote CycloneDX v1.5 JSON SBOM with $($DependencyGraph.Count) Dependency Edges: $SbomPath" -ForegroundColor Green
 
 # 7. Generate SHA256 Checksums for Release Binaries in Staging
 $ChecksumsPath = Join-Path $FullOutput "checksums.sha256"

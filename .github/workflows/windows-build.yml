@@ -224,3 +224,52 @@ jobs:
             packaging/output/*
             packaging/staging/*
           retention-days: 7
+
+  msi-runtime-qualification:
+    name: Windows Runtime & MSI Lifecycle Qualification
+    needs: [release-engineering]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Desktop frontend assets
+        working-directory: apps/desktop
+        shell: pwsh
+        run: |
+          npm ci
+          npm run build
+
+      - name: Download Release Package Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-package-nm07-0-1
+          path: packaging/output
+
+      - name: Run Desktop Runtime Qualification Test
+        shell: pwsh
+        run: |
+          .\packaging\test-desktop-runtime.ps1
+
+      - name: Run Network Recovery & State Test
+        shell: pwsh
+        run: |
+          .\packaging\test-network-recovery.ps1
+
+      - name: Run MSI Lifecycle Qualification Test
+        shell: pwsh
+        run: |
+          .\packaging\test-installer-lifecycle.ps1
+
+      - name: Upload Installer Lifecycle Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-lifecycle-logs
+          path: packaging/output/lifecycle-logs/*
+          retention-days: 7

@@ -16,6 +16,7 @@ env:
 
 jobs:
   go-build-and-test:
+    name: Go Service Build & Test
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -82,6 +83,7 @@ jobs:
           retention-days: 7
 
   rust-build-and-test:
+    name: Rust Workspace Check & Test
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -110,19 +112,77 @@ jobs:
         run: |
           cargo test --workspace
 
-  release-engineering:
-    name: Windows Packaging & Release Engineering
-    needs: [go-build-and-test, rust-build-and-test]
+  tauri-desktop-build:
+    name: Tauri Desktop Application Build
     runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Go binary artifact
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Build Desktop frontend assets
+        working-directory: apps/desktop
+        shell: pwsh
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Tauri desktop executable
+        shell: pwsh
+        run: |
+          cargo build --release -p multinet-cybershield-ai-desktop
+          $exePath = "target/release/multinet-cybershield-ai.exe"
+          if (Test-Path $exePath) {
+            $hash = (Get-FileHash $exePath -Algorithm SHA256).Hash
+            $len = (Get-Item $exePath).Length
+            Write-Host "Desktop binary produced successfully: $exePath ($len bytes)"
+            Write-Host "SHA256: $hash"
+          } else {
+            Write-Error "Cargo release build did not produce $exePath"
+            exit 1
+          }
+
+      - name: Upload Desktop binary artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-app
+          path: target/release/multinet-cybershield-ai.exe
+          retention-days: 7
+
+  release-engineering:
+    name: Windows Packaging & Release Integrity Verification
+    needs: [go-build-and-test, rust-build-and-test, tauri-desktop-build]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Go Service binary artifact
         uses: actions/download-artifact@v4
         with:
           name: net-merge-service
           path: services/net-merge
+
+      - name: Download Desktop Application binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-app
+          path: target/release
+
+      - name: Fetch and verify authentic Wintun driver
+        shell: pwsh
+        run: |
+          .\platform\windows\wintun\fetch-wintun.ps1
 
       - name: Install WiX Toolset v5
         shell: pwsh
@@ -140,18 +200,27 @@ jobs:
         run: |
           .\packaging\sbom\generate-sbom.ps1
 
-      - name: Verify Code Signatures & Integrity
+      - name: Verify Code Signatures (Beta Policy)
         shell: pwsh
         run: |
-          .\packaging\signing\verify-signatures.ps1
+          .\packaging\signing\verify-signatures.ps1 -Policy Beta
+
+      - name: Package Beta Distribution Archive
+        shell: pwsh
+        run: |
+          .\packaging\package-beta.ps1
+
+      - name: Run Package Integrity Test Suite
+        shell: pwsh
+        run: |
+          .\packaging\test-package-integrity.ps1
 
       - name: Upload Release Package Artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: release-package-nm07-0
+          name: release-package-nm07-0-1
           path: |
             packaging/output/*
             packaging/staging/*
           retention-days: 7
-

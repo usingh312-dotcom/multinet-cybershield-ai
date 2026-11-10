@@ -70,9 +70,16 @@
                         Wait="yes" />
       </Component>
 
-      <!-- 2. Wintun Driver DLL Component -->
-      <Component Id="WintunDriverComponent" Directory="INSTALLFOLDER" Bitness="always64" Guid="{1E3F5A7B-9C2D-4E6F-8A0B-2C4E6F8A0B2C}">
-        <File Id="WintunDll"
+      <!-- 2. Wintun Driver DLL Component (in drivers\ subdirectory) -->
+      <Component Id="WintunDriverComponent" Directory="DriversFolder" Bitness="always64" Guid="{1E3F5A7B-9C2D-4E6F-8A0B-2C4E6F8A0B2C}">
+        <File Id="WintunDllDrivers"
+              Source="$(var.SourceDir)/wintun.dll"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- 2b. Wintun Driver DLL Component (in root application folder) -->
+      <Component Id="WintunRootComponent" Directory="INSTALLFOLDER" Bitness="always64" Guid="{3E5F7A1B-2C3D-4E6F-8A9C-1E3F5A7B9C2D}">
+        <File Id="WintunDllRoot"
               Source="$(var.SourceDir)/wintun.dll"
               KeyPath="yes" />
       </Component>

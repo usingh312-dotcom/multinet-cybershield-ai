@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 description = "MultiNet CyberShield AI desktop shell (Tauri 2)"
 
+[[bin]]
+name = "multinet-cybershield-ai"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

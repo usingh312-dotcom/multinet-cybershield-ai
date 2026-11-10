@@ -17,13 +17,17 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// CheckDriver reports whether the TUN driver can be loaded: wintun.dll must sit next to the exe.
+// CheckDriver reports whether the TUN driver can be loaded: wintun.dll must sit next to the exe or in drivers subfolder.
 func CheckDriver() error {
 	exe, _ := os.Executable()
-	if _, err := os.Stat(filepath.Join(filepath.Dir(exe), "wintun.dll")); err != nil {
-		return fmt.Errorf("wintun.dll not found next to %s", exe)
+	dir := filepath.Dir(exe)
+	if _, err := os.Stat(filepath.Join(dir, "wintun.dll")); err == nil {
+		return nil
 	}
-	return nil
+	if _, err := os.Stat(filepath.Join(dir, "drivers", "wintun.dll")); err == nil {
+		return nil
+	}
+	return fmt.Errorf("wintun.dll not found next to %s or in drivers subfolder", exe)
 }
 
 // WaitForTray blocks until the shell's taskbar and notification area exist.

@@ -717,6 +717,7 @@ mod tests {
                 multinet_p50_mbps,
                 competitor_p50_mbps,
                 ratio_p50,
+                ..
             } => {
                 assert_eq!(winner, "MultiNet");
                 assert!(multinet_p50_mbps > competitor_p50_mbps);

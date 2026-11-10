@@ -268,15 +268,17 @@ mod tests {
 
     #[test]
     fn test_html_report_escapes_xss_payloads_in_reasons_and_names() {
-        let run = BenchmarkRun {
-            schema_version: "1.0.0".to_string(),
-            run_id: "xss-test-run<script>".to_string(),
-            timestamps: RunTimestamps {
+        let run = BenchmarkRun::new(
+            "xss-test-run<script>".to_string(),
+            EvidenceTier::Synthetic,
+            "test<script>".to_string(),
+            Some(42),
+            RunTimestamps {
                 start_utc: "2026-11-10T00:00:00Z".to_string(),
                 end_utc: "2026-11-10T00:01:00Z".to_string(),
                 duration_ms: 60000,
             },
-            metadata: SystemMetadata {
+            SystemMetadata {
                 app_version: "0.1.0".to_string(),
                 commit_sha: "abcd1234<script>".to_string(),
                 branch: "test".to_string(),
@@ -286,10 +288,7 @@ mod tests {
                 cpu_model: "AMD".to_string(),
                 ram_total_bytes: 16000000000,
             },
-            tier: EvidenceTier::Synthetic,
-            profile_name: "test<script>".to_string(),
-            seed: Some(42),
-            tests: vec![TestCaseResult {
+            vec![TestCaseResult {
                 test_id: "id_xss<script>".to_string(),
                 test_name: "Test Name <marquee>".to_string(),
                 tier: EvidenceTier::Synthetic,
@@ -299,15 +298,7 @@ mod tests {
                 per_path_metrics: vec![],
                 raw_samples: vec![],
             }],
-            summary: RunSummary {
-                total_tests: 1,
-                passed: 0,
-                failed: 0,
-                blocked: 1,
-                skipped: 0,
-                not_tested: 0,
-            },
-        };
+        );
 
         let html = generate_html_report(&run);
         assert!(!html.contains("<script>"));

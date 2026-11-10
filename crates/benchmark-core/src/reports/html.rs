@@ -252,9 +252,7 @@ pub fn generate_html_report(run: &BenchmarkRun) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{
-        EvidenceTier, RunSummary, RunTimestamps, SystemMetadata, TestCaseResult, TestStatus,
-    };
+    use crate::models::{EvidenceTier, RunTimestamps, SystemMetadata, TestCaseResult, TestStatus};
 
     #[test]
     fn test_escape_html_replaces_all_special_chars() {

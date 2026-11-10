@@ -18,7 +18,6 @@ use benchmark_core::reports;
 use speed_test::is_loopback_url_str;
 use std::env;
 use std::fs;
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;

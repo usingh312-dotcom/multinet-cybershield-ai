@@ -270,6 +270,10 @@ mod tests {
 
     fn make_mock_report(download_mbps: f64) -> SpeedTestReport {
         SpeedTestReport {
+            server_url: "https://127.0.0.1:9000".into(),
+            server_name: "Mock Server".into(),
+            server_observed_client_ip: "127.0.0.1".into(),
+            interface_local_ip: None,
             duration_ms: 1000,
             download_mbps,
             upload_mbps: 10.0,
@@ -281,6 +285,8 @@ mod tests {
             ping_samples: 5,
             ping_received: 5,
             rtt_samples: vec![14.0, 15.0, 15.5, 16.0, 14.5],
+            started_at: "2026-11-10T00:00:00Z".into(),
+            completed_at: "2026-11-10T00:00:01Z".into(),
         }
     }
 

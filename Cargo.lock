@@ -2382,6 +2382,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "telemetry",
+ "tempfile",
  "thiserror 1.0.69",
  "time",
  "tokio",

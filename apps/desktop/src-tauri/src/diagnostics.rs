@@ -152,6 +152,11 @@ impl DiagnosticsState {
             speed: SpeedTestStore::default(),
         }
     }
+
+    /// Number of speed-test runs currently tracked in memory.
+    pub fn tracked_speed_test_runs(&self) -> usize {
+        self.speed.tracked_runs()
+    }
 }
 
 impl Default for DiagnosticsState {
@@ -191,6 +196,13 @@ pub fn spawn_traffic_monitor(state: Arc<DiagnosticsState>, pool: sqlx::SqlitePoo
             let discovered = interface_discovery::discover_interfaces().unwrap_or_default();
             let by_index: HashMap<u32, &NetworkInterface> =
                 discovered.iter().map(|i| (i.interface_index, i)).collect();
+            // `GetIfTable2` also reports NDIS filter and QoS pseudo-interfaces
+            // ("...-WFP 802.3 MAC Layer LightWeight Filter-0000" and friends).
+            // They are not adapters a user can select, and counting them would
+            // make the traffic view disagree with the adapter inventory. When
+            // the discovery call produced nothing, no filter is applied so no
+            // measurement is lost.
+            let filter_to_adapters = !by_index.is_empty();
 
             let samples = tracker.update(&counters, elapsed);
             let sampled_at = now_rfc3339();
@@ -205,6 +217,9 @@ pub fn spawn_traffic_monitor(state: Arc<DiagnosticsState>, pool: sqlx::SqlitePoo
 
             for sample in &samples {
                 let interface = by_index.get(&sample.interface_index).copied();
+                if filter_to_adapters && interface.is_none() {
+                    continue;
+                }
                 if is_loopback(interface, sample) {
                     continue;
                 }
@@ -361,7 +376,7 @@ pub fn spawn_traffic_monitor(state: Arc<DiagnosticsState>, pool: sqlx::SqlitePoo
 
 #[tauri::command]
 pub fn get_traffic_monitor_status(
-    state: tauri::State<'_, DiagnosticsState>,
+    state: tauri::State<'_, Arc<DiagnosticsState>>,
 ) -> TrafficMonitorStatusDto {
     TrafficMonitorStatusDto {
         running: state.running.load(Ordering::Relaxed),
@@ -372,7 +387,7 @@ pub fn get_traffic_monitor_status(
 
 #[tauri::command]
 pub fn set_traffic_monitor_running(
-    state: tauri::State<'_, DiagnosticsState>,
+    state: tauri::State<'_, Arc<DiagnosticsState>>,
     running: bool,
 ) -> TrafficMonitorStatusDto {
     state.running.store(running, Ordering::Relaxed);
@@ -385,7 +400,7 @@ pub fn set_traffic_monitor_running(
 
 #[tauri::command]
 pub async fn get_traffic_snapshot(
-    state: tauri::State<'_, DiagnosticsState>,
+    state: tauri::State<'_, Arc<DiagnosticsState>>,
     pool: tauri::State<'_, crate::db::DatabaseState>,
 ) -> Result<TrafficSnapshotDto, IpcError> {
     let mut snapshot = (*lock(&state.latest))
@@ -409,7 +424,11 @@ pub async fn get_traffic_snapshot(
         .format(&Rfc3339)
         .map_err(|e| IpcError::internal(format!("timestamp encode failed: {e}")))?;
     let peak = sqlx::query(
-        "SELECT COALESCE(MAX(COALESCE(rx_rate_bps, 0) + COALESCE(tx_rate_bps, 0)), 0) AS peak \
+        // `0.0` rather than `0`: SQLite would otherwise hand the fallback
+        // back as an INTEGER, which cannot be decoded into an `f64`. On a
+        // fresh installation with no recorded sample the aggregate is NULL,
+        // so this literal is the value that is actually returned.
+        "SELECT COALESCE(MAX(COALESCE(rx_rate_bps, 0.0) + COALESCE(tx_rate_bps, 0.0)), 0.0) AS peak \
          FROM traffic_samples WHERE interface_id = $1 AND sampled_at >= $2",
     )
     .bind(AGGREGATE_INTERFACE_ID)
@@ -439,9 +458,13 @@ pub async fn get_traffic_history(
     let cutoff = (OffsetDateTime::now_utc() - time::Duration::seconds(seconds as i64))
         .format(&Rfc3339)
         .map_err(|e| IpcError::internal(format!("timestamp encode failed: {e}")))?;
-    let bucket = (seconds / 600).max(1);
+    // Long windows are aggregated into fixed 10-minute buckets. The bucket
+    // *size* is what groups the samples; the bucket *count* only decides
+    // whether aggregation is worth the loss of resolution.
+    const BUCKET_SECONDS: i64 = 600;
+    let bucket_count = (seconds as i64 / BUCKET_SECONDS).max(1);
 
-    let rows = if bucket <= 1 {
+    let rows = if bucket_count <= 1 {
         sqlx::query(
             "SELECT interface_id, interface_index, rx_rate_bps, tx_rate_bps, rx_bytes, tx_bytes, \
                     counter_reset, sampled_at \
@@ -464,7 +487,7 @@ pub async fn get_traffic_history(
         )
         .bind(&interface_id)
         .bind(&cutoff)
-        .bind(bucket)
+        .bind(BUCKET_SECONDS)
         .fetch_all(&pool.pool)
         .await
     }
@@ -537,9 +560,16 @@ fn db_read(error: sqlx::Error) -> IpcError {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Default)]
-struct SpeedTestStore {
+pub struct SpeedTestStore {
     runs: Mutex<HashMap<String, Arc<SpeedTestRun>>>,
     order: Mutex<VecDeque<String>>,
+}
+
+impl SpeedTestStore {
+    /// Number of speed-test runs currently tracked by the store.
+    pub fn tracked_runs(&self) -> usize {
+        lock(&self.runs).len()
+    }
 }
 
 #[derive(Debug, Default)]
@@ -669,7 +699,7 @@ fn url_is_loopback(url: &str) -> bool {
 
 #[tauri::command]
 pub async fn start_speed_test(
-    state: tauri::State<'_, DiagnosticsState>,
+    state: tauri::State<'_, Arc<DiagnosticsState>>,
     pool: tauri::State<'_, crate::db::DatabaseState>,
     request: StartSpeedTestRequest,
 ) -> Result<String, IpcError> {
@@ -769,7 +799,7 @@ pub async fn start_speed_test(
 
 #[tauri::command]
 pub fn get_speed_test_status(
-    state: tauri::State<'_, DiagnosticsState>,
+    state: tauri::State<'_, Arc<DiagnosticsState>>,
     id: String,
 ) -> Result<SpeedTestStatusDto, IpcError> {
     let run = lock(&state.speed.runs)
@@ -796,7 +826,7 @@ pub fn get_speed_test_status(
 
 #[tauri::command]
 pub fn cancel_speed_test(
-    state: tauri::State<'_, DiagnosticsState>,
+    state: tauri::State<'_, Arc<DiagnosticsState>>,
     id: String,
 ) -> Result<(), IpcError> {
     let run = lock(&state.speed.runs)

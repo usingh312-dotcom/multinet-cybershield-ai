@@ -1,28 +1,32 @@
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import type { TrafficMetrics } from "../../types/telemetry";
+import type { BackendTrafficSample } from "../../api";
 import { EmptyState } from "./feedback";
 import { IconActivity } from "./icons";
 import type { ReactNode } from "react";
 
 type BandwidthChartProps = {
-  data: TrafficMetrics[];
+  data: BackendTrafficSample[];
   emptyState: ReactNode;
   height?: number;
 };
 
-const mbps = (bytesPerSecond: number) => (bytesPerSecond * 8) / 1_000_000;
+/** Bits per second to megabits per second. */
+const mbps = (bitsPerSecond: number | null) =>
+  bitsPerSecond === null ? null : (bitsPerSecond * 8) / 1_000_000;
 
 export function BandwidthChart({ data, emptyState, height = 320 }: BandwidthChartProps) {
   if (data.length === 0) {
     return <>{emptyState}</>;
   }
 
-  const series = [...data] // boundary: real telemetry arrives pre-ordered; never synthesized here.
-    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-    .map((m) => ({
-      time: m.timestamp,
-      downloadMbps: Number(mbps(m.downloadBytesPerSecond).toFixed(2)),
-      uploadMbps: Number(mbps(m.uploadBytesPerSecond).toFixed(2))
+  // Boundary: the samples are backend measurements ordered by their own
+  // timestamp. Nothing is smoothed, interpolated or synthesized here.
+  const series = [...data]
+    .sort((a, b) => a.sampledAt.localeCompare(b.sampledAt))
+    .map((sample) => ({
+      time: sample.sampledAt,
+      downloadMbps: mbps(sample.rxRateBps),
+      uploadMbps: mbps(sample.txRateBps)
     }));
 
   return (
@@ -40,15 +44,15 @@ export function BandwidthChart({ data, emptyState, height = 320 }: BandwidthChar
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="#273449" vertical={false} />
-          <XAxis dataKey="time" tick={{ fill: "#94A3B8", fontSize: 11 }} stroke="#273449" tickMargin={8} />
+          <XAxis dataKey="time" tick={{ fill: "#94A3B8", fontSize: 11 }} stroke="#273449" tickMargin={8} minTickGap={40} />
           <YAxis tick={{ fill: "#94A3B8", fontSize: 11 }} stroke="#273449" width={44} unit=" Mb/s" tickFormatter={(v: number) => String(v)} />
           <Tooltip
             contentStyle={{ background: "#151D28", border: "1px solid #273449", borderRadius: 12, color: "#F1F5F9", fontSize: 12 }}
             labelStyle={{ color: "#94A3B8" }}
           />
           <Legend wrapperStyle={{ color: "#94A3B8", fontSize: 12 }} />
-          <Area type="monotone" dataKey="downloadMbps" name="Download" stroke="#22C3DD" strokeWidth={2} fill="url(#dlFill)" isAnimationActive={false} />
-          <Area type="monotone" dataKey="uploadMbps" name="Upload" stroke="#6366F1" strokeWidth={2} fill="url(#ulFill)" isAnimationActive={false} />
+          <Area type="monotone" dataKey="downloadMbps" name="Download" stroke="#22C3DD" strokeWidth={2} fill="url(#dlFill)" isAnimationActive={false} connectNulls={false} />
+          <Area type="monotone" dataKey="uploadMbps" name="Upload" stroke="#6366F1" strokeWidth={2} fill="url(#ulFill)" isAnimationActive={false} connectNulls={false} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -60,7 +64,7 @@ export function BandwidthChartEmpty() {
     <EmptyState
       icon={<IconActivity size={18} />}
       title="No traffic data to chart"
-      description="Throughput history renders from the TrafficMetrics collector feed only. No sample series, smoothing or synthetic spikes are displayed while collectors are offline."
+      description="Throughput history renders from the verified GetIfTable2 sampler feed only. No sample series, smoothing or synthetic spikes are displayed while the monitor is offline."
     />
   );
 }

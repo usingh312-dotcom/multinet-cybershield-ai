@@ -9,6 +9,20 @@ description = "MultiNet CyberShield AI desktop shell (Tauri 2)"
 name = "multinet-cybershield-ai"
 path = "src/main.rs"
 
+[lib]
+name = "multinet_cybershield_ai_desktop"
+path = "src/lib.rs"
+crate-type = ["lib"]
+
+[features]
+# Production builds must embed the compiled frontend instead of loading the
+# Vite dev server. The Tauri CLI enables `tauri/custom-protocol` for release
+# builds; a plain `cargo build --release` does not, which previously produced
+# a binary that pointed at http://localhost:1420 and rendered nothing outside
+# the developer's machine. Exposing the same feature here lets every build
+# path (CI, `npm run tauri:build`, cargo) opt in explicitly and identically.
+custom-protocol = ["tauri/custom-protocol"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -35,3 +49,7 @@ security-policy.workspace = true
 bonding-engine.workspace = true
 
 [dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+uuid.workspace = true
+tempfile = "3"

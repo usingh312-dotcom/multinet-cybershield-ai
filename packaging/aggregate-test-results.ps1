@@ -4,6 +4,7 @@ param (
     [string]$LifecycleResults = "$PSScriptRoot\output\lifecycle-logs\test-results.json",
     [string]$DesktopResults   = "$PSScriptRoot\output\desktop-runtime-logs\test-results.json",
     [string]$NetworkResults   = "$PSScriptRoot\output\network-diagnostics\test-results.json",
+    [string]$NativeResults    = "$PSScriptRoot\output\native-runtime-logs\test-results.json",
     [string]$OutputFile       = "$PSScriptRoot\output\final-qualification-report.json",
     [switch]$Strict = ($env:CI -eq 'true')
 )
@@ -19,7 +20,8 @@ Write-Host "==========================================================" -Foregro
 $sources = @(
     @{ Name = "MSI Lifecycle Qualification"; Path = $LifecycleResults },
     @{ Name = "Desktop Runtime Qualification"; Path = $DesktopResults },
-    @{ Name = "Network Recovery Qualification"; Path = $NetworkResults }
+    @{ Name = "Network Recovery Qualification"; Path = $NetworkResults },
+    @{ Name = "Native Runtime Qualification"; Path = $NativeResults }
 )
 
 $allSuites = [System.Collections.Generic.List[PSCustomObject]]::new()

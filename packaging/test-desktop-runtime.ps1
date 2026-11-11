@@ -255,7 +255,13 @@ if ($desktopExe) {
                 return "Database file not created within timeout. $exitInfo. Checked paths: $($candidatePaths -join ', ')"
             }
             
-            # Inspect SQLite database schema & migrations using python
+            # Inspect SQLite database schema & migrations using python.
+            #
+            # The script is written to a temporary file instead of being passed
+            # with `python -c`: PowerShell 5.1 mangles the embedded double
+            # quotes of an inline script when it is handed to a native command,
+            # which made this inspection fail on Windows PowerShell even though
+            # the database was correct.
             $pyScript = @"
 import sqlite3, sys
 db = sys.argv[1]
@@ -282,7 +288,9 @@ if 'traffic_snapshots' not in names and 'traffic_samples' not in names:
 print(f"OK: {mig_count} migrations, verified required tables")
 sys.exit(0)
 "@
-            $pyResult = python -c $pyScript "$dbPath" 2>&1
+            $pyFile = Join-Path $tempProfile "verify_schema.py"
+            Set-Content -Path $pyFile -Value $pyScript -Encoding utf8
+            $pyResult = python $pyFile "$dbPath" 2>&1
             if ($LASTEXITCODE -ne 0) {
                 return "SQLite DB inspection failed: $pyResult"
             }

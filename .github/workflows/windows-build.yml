@@ -112,6 +112,50 @@ jobs:
         run: |
           cargo test --workspace
 
+      - name: Native Tauri IPC integration tests
+        shell: pwsh
+        run: |
+          cargo test -p multinet-cybershield-ai-desktop --test native_ipc
+
+  desktop-frontend-tests:
+    name: Desktop Frontend Tests
+    runs-on: windows-latest
+    needs: tauri-desktop-build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download Desktop Application binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-app
+          path: target/release
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop
+        shell: pwsh
+        run: npm ci
+
+      - name: Browser-preview frontend tests
+        working-directory: apps/desktop
+        shell: pwsh
+        run: npm run test:browser
+
+      - name: Native frontend runtime tests
+        working-directory: apps/desktop
+        shell: pwsh
+        run: npm run test:native
+
+      - name: Frontend type check
+        working-directory: apps/desktop
+        shell: pwsh
+        run: npx tsc -b --pretty false
+
   tauri-desktop-build:
     name: Tauri Desktop Application Build
     runs-on: windows-latest
@@ -139,7 +183,10 @@ jobs:
       - name: Build Tauri desktop executable
         shell: pwsh
         run: |
-          cargo build --release -p multinet-cybershield-ai-desktop
+          # `custom-protocol` embeds the compiled frontend into the binary.
+          # Without it the release executable loads http://localhost:1420 and
+          # renders nothing on a machine without the Vite dev server.
+          cargo build --release -p multinet-cybershield-ai-desktop --features custom-protocol
           $exePath = "target/release/multinet-cybershield-ai.exe"
           if (Test-Path $exePath) {
             $hash = (Get-FileHash $exePath -Algorithm SHA256).Hash
@@ -150,6 +197,20 @@ jobs:
             Write-Error "Cargo release build did not produce $exePath"
             exit 1
           }
+
+      - name: Verify the release binary embeds the frontend
+        shell: pwsh
+        run: |
+          # The embedded asset bundle must be present in the executable; a
+          # binary that only points at the dev server is not shippable.
+          $exePath = "target/release/multinet-cybershield-ai.exe"
+          $bytes = [System.IO.File]::ReadAllBytes($exePath)
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if ($text -notmatch "assets/index-") {
+            Write-Error "The release binary does not embed the compiled frontend assets."
+            exit 1
+          }
+          Write-Host "[OK] Release binary embeds the compiled frontend assets."
 
       - name: Upload Desktop binary artifact
         if: success()
@@ -313,6 +374,16 @@ jobs:
         run: |
           .\packaging\test-desktop-runtime.ps1
 
+      - name: Run Native Runtime Qualification Test
+        shell: pwsh
+        run: |
+          # Verifies the shipped executable at runtime: embedded frontend, no
+          # dependency on the Vite development server, a native window that
+          # loads through the Tauri custom protocol, and live IPC answers for
+          # the foundation and all nine diagnostics commands. A successful
+          # build alone is not runtime acceptance.
+          .\packaging\test-native-runtime.ps1
+
       - name: Run Network Recovery & State Test
         shell: pwsh
         run: |
@@ -339,4 +410,5 @@ jobs:
             packaging/output/lifecycle-logs/*
             packaging/output/desktop-runtime-logs/*
             packaging/output/network-diagnostics/*
+            packaging/output/native-runtime-logs/*
           retention-days: 7
